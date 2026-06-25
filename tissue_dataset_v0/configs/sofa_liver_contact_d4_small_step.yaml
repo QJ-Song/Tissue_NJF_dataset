@@ -1,0 +1,58 @@
+dataset:
+  output_dir: ../outputs/sofa_liver_contact_d4_small_step
+  num_samples: 1
+  sample_id_start: 1
+  seed: 132
+
+backend:
+  type: sofa_fem
+  extra:
+    sofa_tissue_shape: liver_like
+    sofa_total_steps: 80
+    sofa_dt: 0.005
+    sofa_interaction_model: probe_contact
+    sofa_probe_radius: 0.010
+    sofa_probe_clearance: 0.0
+    sofa_probe_contact_max_depth: 0.0002
+    sofa_probe_contact_distance: 0.002
+    sofa_probe_alarm_distance: 0.006
+    sofa_record_tool_motion: true
+    sofa_record_contact_summary: true
+    sofa_record_boundary_solver: true
+
+geometry:
+  size_x: 0.12
+  size_y: 0.085
+  thickness: 0.018
+  nx: 8
+  ny: 6
+  layers: 4
+  fixed_border_ratio: 0.12
+
+material_sampler:
+  type: uniform
+  youngs_modulus: [5000.0, 5000.0]
+  poisson_ratio: [0.45, 0.45]
+  density: 1000.0
+  damping: [0.5, 0.5]
+  boundary_condition: bottom_fixed
+
+action_sampler:
+  type: uniform_press
+  contact_margin: 0.0
+  depth: [0.0002, 0.0002]
+  direction_mode: upper_hemisphere_cone
+  max_tilt_deg: 10
+
+logging:
+  enabled: true
+  log_dir_name: logs
+  log_every_n: 10
+  save_vertices: true
+  save_tool_pose: true
+  save_events: true
+  save_request: true
+
+artifacts:
+  include: null
+  exclude: []

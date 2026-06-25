@@ -1,0 +1,52 @@
+dataset:
+  output_dir: ../outputs/sofa_liver_stage_b
+  num_samples: 10
+  sample_id_start: 1
+  seed: 124
+
+backend:
+  type: sofa_fem
+  extra:
+    sofa_tissue_shape: liver_like
+    sofa_total_steps: 180
+    sofa_dt: 0.01
+    sofa_load_model: localized_probe_force
+    sofa_probe_radius: 0.022
+    sofa_probe_force_scale: 2.6
+    sofa_probe_max_force: 4.2
+    sofa_probe_force_material_scaling: false
+
+geometry:
+  size_x: 0.12
+  size_y: 0.085
+  thickness: 0.018
+  nx: 8
+  ny: 6
+  layers: 4
+  fixed_border_ratio: 0.12
+
+material_sampler:
+  type: uniform
+  youngs_modulus: [4000.0, 12000.0]
+  poisson_ratio: [0.43, 0.48]
+  density: 1000.0
+  damping: [0.4, 1.0]
+  boundary_condition: bottom_fixed
+
+action_sampler:
+  type: uniform_press
+  contact_margin: 0.026
+  depth: [0.004, 0.008]
+
+logging:
+  enabled: true
+  log_dir_name: logs
+  log_every_n: 10
+  save_vertices: true
+  save_tool_pose: false
+  save_events: true
+  save_request: true
+
+artifacts:
+  include: null
+  exclude: []
