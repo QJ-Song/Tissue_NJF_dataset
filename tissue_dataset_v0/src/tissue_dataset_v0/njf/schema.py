@@ -24,6 +24,7 @@ class ModeBGroupPlan:
     boundary_id: str
     contact_point_id: str
     contact_point: tuple[float, float, float]
+    material: MaterialConfig
     actions: tuple[ModeAActionPlan, ...]
 
 

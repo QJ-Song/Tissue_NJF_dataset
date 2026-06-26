@@ -355,6 +355,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Response basis analysis script added and sanity-checked on smoke output.
 * [x] Non-smoke demo dataset generated, validated, and analyzed.
 * [x] Rollout trajectory analysis script added and validated on smoke and non-smoke outputs.
+* [x] Response Basis Batch v1 planner/config/analysis implemented and validated.
 
 ## Notes
 
@@ -389,7 +390,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: add a first training/evaluation-facing loader or metric harness that can consume Mode A local samples and Mode C trajectories without depending on SOFA runtime. Keep it model-agnostic until the NJF architecture is chosen.
+Next step: add a model-agnostic training/evaluation-facing loader or metric harness that can consume Mode A local samples, Mode B groups, and Mode C trajectories without depending on SOFA runtime. Keep it model-agnostic until the NJF architecture is chosen.
 
 
 ## Demo Analysis Notes
@@ -443,3 +444,40 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_trajectorie
 ```
 
 The script reads `trajectories/traj_*` only; it does not rerun SOFA. It reports trajectory length, action step size, per-step response norms, cumulative deformation, fixed-node drift, tool-pose/action consistency, contact activity, contact-distance range, contact-point drift, and placeholder fields for future rolling-NJF prediction metrics. Demo output passed with `T=10`, `ready=True`, final max deformation `2.592 mm`, max per-step node response `1.727 mm`, max tool step error `0.000002 mm`, contact active `10/10`, and fixed-node drift `0.000000 mm`. Smoke output passed with a warning because `T=3` is shorter than the useful rollout threshold `T>=10`.
+
+## Response Basis Batch v1 Notes
+
+Implemented planner support for multi-contact and multi-material Mode B groups. `response_basis.contact_points_xy` now accepts a list of `[x, y]` points, and `response_basis.material_grid` can generate a small grid over Young's modulus, Poisson ratio, density, and damping. The backend still receives one ordinary `SampleRequest` per action; batch logic remains in the NJF orchestration layer.
+
+Added `tissue_dataset_v0/configs/sofa_njf_basis_batch.yaml` for the first batch experiment. It writes to `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` and generates:
+
+```text
+3 contact points: [0.0, 0.0], [-0.01, 0.0], [-0.015, 0.0]
+2 Young's modulus values: 3000.0, 10000.0
+6 Mode B groups
+24 actions per group
+144 samples total
+```
+
+An initial wider contact set produced a failed generated dataset at `tissue_dataset_v0/outputs/sofa_njf_basis_batch` because `[0.025, 0.0]` and several y-offset candidate points did not produce contact on the current procedural liver-like geometry. That output should be treated as a failed experiment artifact and not used for training or conclusions. It was not deleted.
+
+Checks run and passed for the valid batch:
+
+```bash
+python3 -m py_compile tissue_dataset_v0/src/tissue_dataset_v0/njf/schema.py tissue_dataset_v0/src/tissue_dataset_v0/njf/plan.py tissue_dataset_v0/src/tissue_dataset_v0/njf/modes.py tissue_dataset_v0/scripts/analyze_response_basis.py
+scripts/run_sofa_python.sh -c "from pathlib import Path; from tissue_dataset_v0.njf.plan import load_njf_plan; p=load_njf_plan(Path('tissue_dataset_v0/configs/sofa_njf_basis_batch.yaml')); print({'mode_b_groups': len(p.mode_b_groups), 'mode_b_actions': sum(len(g.actions) for g in p.mode_b_groups)})"
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_basis_batch.yaml
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_dataset_smoke.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/samples --require tool_pose_0 --require tool_pose_1 --require tool_geometry --require contact_summary --require fixed_node_indices --require free_node_indices --require boundary_mask --require boundary --require solver_summary
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_tool_direction.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/samples --min-samples 144 --max-angle-error-deg 0.1 --min-motion-mm 0.04
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_contact.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/samples --min-samples 144
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/samples --min-samples 144
+```
+
+Valid batch result:
+
+```text
+validator: samples=144 groups=6 trajectories=0 errors=0 warnings=0
+basis summary: effective_rank_mean=1.903, effective_rank_range=[1.376, 2.430], leave_one_action_out_mean=0.014674, top2_cumulative_explained_mean=0.963488
+```

@@ -227,4 +227,49 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_trajectorie
 
 The rollout analyzer reads `trajectories/traj_*` and reports trajectory length, action step size, per-step response norms, cumulative deformation, fixed-node drift, tool-pose/action consistency, contact activity, contact-distance range, contact-point drift, and placeholder fields for future rolling-NJF prediction metrics. On the current non-smoke demo, `traj_000001` passes with `T=10`, `ready=True`, final max deformation `2.592 mm`, max per-step node response `1.727 mm`, max tool step error `0.000002 mm`, contact active `10/10`, and fixed-node drift `0.000000 mm`.
 
+## Response Basis Batch v1
+
+A first batch response-basis config is available at `tissue_dataset_v0/configs/sofa_njf_basis_batch.yaml`. It generates Mode B only:
+
+```text
+3 fixed contact points x 2 material settings x 24 actions = 144 samples
+6 response-basis groups
+```
+
+The current valid contact points are conservative points on the tested liver-like geometry:
+
+```text
+[0.0, 0.0]
+[-0.01, 0.0]
+[-0.015, 0.0]
+```
+
+A wider initial point `[0.025, 0.0]` and several y-offset points failed contact validation on this procedural liver-like patch. Do not broaden contact-point sampling on this geometry without a candidate contact smoke test or a surface-aware sampler.
+
+Generate and validate the batch with:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_basis_batch.yaml
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+```
+
+Current validation result for `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid`:
+
+```text
+samples=144 groups=6 trajectories=0 errors=0 warnings=0
+all groups have K=24 and 8 unique action directions
+```
+
+Current batch response-basis summary:
+
+```text
+effective_rank_mean=1.903
+effective_rank_range=[1.376, 2.430]
+leave_one_action_out_mean=0.014674
+top2_cumulative_explained_mean=0.963488
+```
+
+`analyze_response_basis.py` now prints both per-group metrics and aggregate summaries for multi-group datasets.
+
 Next analysis gap: add model-agnostic training/evaluation loaders that can consume Mode A samples and Mode C trajectories without requiring SOFA runtime.

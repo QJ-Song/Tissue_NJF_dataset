@@ -31,7 +31,7 @@ def main() -> int:
         print(f"No group_* directories found under {args.dataset_or_group}", file=sys.stderr)
         return 2
     groups = [analyze_group(path, rank=args.rank) for path in group_dirs]
-    payload = {"valid": True, "group_count": len(groups), "groups": groups}
+    payload = {"valid": True, "group_count": len(groups), "summary": summarize_groups(groups), "groups": groups}
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(jsonable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -99,6 +99,45 @@ def analyze_group(group_dir: Path, *, rank: int | None) -> dict[str, Any]:
     }
 
 
+def summarize_groups(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    if not groups:
+        return {}
+    effective_ranks = np.asarray([float(group["effective_rank"]) for group in groups], dtype=np.float64)
+    loo_mean = np.asarray([float(group["leave_one_out_relative_error_mean"]) for group in groups], dtype=np.float64)
+    loo_max = np.asarray([float(group["leave_one_out_relative_error_max"]) for group in groups], dtype=np.float64)
+    top1 = np.asarray([_cumulative_at(group, 0) for group in groups], dtype=np.float64)
+    top2 = np.asarray([_cumulative_at(group, 1) for group in groups], dtype=np.float64)
+    top3 = np.asarray([_cumulative_at(group, 2) for group in groups], dtype=np.float64)
+    return {
+        "effective_rank": stat_summary(effective_ranks),
+        "loo_mean_relative_error": stat_summary(loo_mean),
+        "loo_max_relative_error": stat_summary(loo_max),
+        "top1_cumulative_explained": stat_summary(top1),
+        "top2_cumulative_explained": stat_summary(top2),
+        "top3_cumulative_explained": stat_summary(top3),
+        "smoke_sized_group_count": int(sum(bool(group.get("smoke_sized_group", False)) for group in groups)),
+        "groups_with_k_ge_12": int(sum(int(group.get("action_count", 0)) >= 12 for group in groups)),
+    }
+
+
+def _cumulative_at(group: dict[str, Any], index: int) -> float:
+    values = group.get("cumulative_explained_variance", [])
+    if not values:
+        return 0.0
+    return float(values[min(index, len(values) - 1)])
+
+
+def stat_summary(values: np.ndarray) -> dict[str, float]:
+    if values.size == 0:
+        return {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
+    return {
+        "mean": float(values.mean()),
+        "std": float(values.std()),
+        "min": float(values.min()),
+        "max": float(values.max()),
+    }
+
+
 def entropy_effective_rank(explained: np.ndarray) -> float:
     probs = explained[np.asarray(explained) > 0.0]
     if probs.size == 0:
@@ -153,6 +192,16 @@ def jsonable(value: Any) -> Any:
 def print_text(payload: dict[str, Any]) -> None:
     print("Response basis analysis: PASS")
     print(f"groups={payload['group_count']}")
+    summary = payload.get("summary") or {}
+    if summary:
+        rank = summary["effective_rank"]
+        loo = summary["loo_mean_relative_error"]
+        top2 = summary["top2_cumulative_explained"]
+        print(
+            "summary="
+            f"eff_rank_mean={rank['mean']:.3f} eff_rank_range=[{rank['min']:.3f}, {rank['max']:.3f}] "
+            f"loo_mean={loo['mean']:.6f} top2_mean={top2['mean']:.6f}"
+        )
     for group in payload["groups"]:
         print(
             f"- {group['group_id']}: K={group['action_count']} "

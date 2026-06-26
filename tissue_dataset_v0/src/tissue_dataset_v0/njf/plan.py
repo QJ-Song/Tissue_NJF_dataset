@@ -86,6 +86,11 @@ def planned_sample_from_action(
     mode: str = "local_perturbation",
     group_id: str | None = None,
     trajectory_id: str | None = None,
+    material: MaterialConfig | None = None,
+    state_id: str = STATE_ID,
+    material_id: str = MATERIAL_ID,
+    boundary_id: str = BOUNDARY_ID,
+    contact_point_id: str = CONTACT_POINT_ID,
     extra_updates: dict[str, Any] | None = None,
 ) -> PlannedSample:
     base = default_sample_request(sample_id=action_plan.sample_id)
@@ -114,10 +119,10 @@ def planned_sample_from_action(
             "njf_mode": mode,
             "group_id": group_id,
             "trajectory_id": trajectory_id,
-            "state_id": STATE_ID,
-            "material_id": MATERIAL_ID,
-            "boundary_id": BOUNDARY_ID,
-            "contact_point_id": CONTACT_POINT_ID,
+            "state_id": state_id,
+            "material_id": material_id,
+            "boundary_id": boundary_id,
+            "contact_point_id": contact_point_id,
             "action_id": action_plan.action_id,
             "step_id": 0,
             "delta_a_m": action_plan.magnitude_m,
@@ -139,7 +144,7 @@ def planned_sample_from_action(
             extra=extra,
         ),
         geometry=plan.geometry,
-        material=plan.material,
+        material=material or plan.material,
         action=action,
         logging=plan.logging,
         enabled_artifacts=plan.enabled_artifacts,
@@ -309,8 +314,8 @@ def _build_mode_a_actions(data: dict[str, Any], geometry: GeometryConfig, *, sam
 def _build_mode_b_groups(data: dict[str, Any], geometry: GeometryConfig, *, sample_start: int) -> list[ModeBGroupPlan]:
     sampling = data.get("sampling", {}) or {}
     basis = sampling.get("response_basis", {}) or {}
-    contact_xy = basis.get("contact_point_xy", sampling.get("contact_point_xy", [0.0, 0.0]))
-    contact_point = _contact_point_from_xy(contact_xy, geometry)
+    contact_points_xy = _basis_contact_points_xy(basis, sampling)
+    material_configs = _basis_material_configs(data, basis, _build_material(data.get("material", data.get("material_sampler", {}))))
     directions = basis.get(
         "action_directions",
         [
@@ -320,33 +325,115 @@ def _build_mode_b_groups(data: dict[str, Any], geometry: GeometryConfig, *, samp
         ],
     )
     magnitudes_mm = basis.get("local_delta_magnitudes_mm", [0.1])
-    group_id = str(basis.get("group_id", "group_000001"))
-    actions: list[ModeAActionPlan] = []
-    index = 0
-    for direction_value in directions:
-        direction = _normalize_direction(direction_value)
-        for magnitude_mm in magnitudes_mm:
-            actions.append(
-                ModeAActionPlan(
-                    action_id=f"{group_id}_action_{index + 1:06d}",
-                    direction=direction,
-                    magnitude_m=float(magnitude_mm) / 1000.0,
+    group_prefix = str(basis.get("group_id_prefix", "group"))
+    single_legacy_group_id = basis.get("group_id") if len(contact_points_xy) == 1 and len(material_configs) == 1 else None
+
+    groups: list[ModeBGroupPlan] = []
+    sample_index = 0
+    group_index = 1
+    for material_index, material_config in enumerate(material_configs, start=1):
+        material_id = f"material_{material_index:06d}"
+        for contact_index, contact_xy in enumerate(contact_points_xy, start=1):
+            contact_point = _contact_point_from_xy(contact_xy, geometry)
+            contact_point_id = f"contact_{contact_index:06d}"
+            group_id = str(single_legacy_group_id or f"{group_prefix}_{group_index:06d}")
+            actions: list[ModeAActionPlan] = []
+            action_index = 0
+            for direction_value in directions:
+                direction = _normalize_direction(direction_value)
+                for magnitude_mm in magnitudes_mm:
+                    actions.append(
+                        ModeAActionPlan(
+                            action_id=f"{group_id}_action_{action_index + 1:06d}",
+                            direction=direction,
+                            magnitude_m=float(magnitude_mm) / 1000.0,
+                            contact_point=contact_point,
+                            sample_id=sample_start + sample_index,
+                        )
+                    )
+                    action_index += 1
+                    sample_index += 1
+            groups.append(
+                ModeBGroupPlan(
+                    group_id=group_id,
+                    state_id=STATE_ID,
+                    material_id=material_id,
+                    boundary_id=BOUNDARY_ID,
+                    contact_point_id=contact_point_id,
                     contact_point=contact_point,
-                    sample_id=sample_start + index,
+                    material=material_config,
+                    actions=tuple(actions),
                 )
             )
-            index += 1
-    return [
-        ModeBGroupPlan(
-            group_id=group_id,
-            state_id=STATE_ID,
-            material_id=MATERIAL_ID,
-            boundary_id=BOUNDARY_ID,
-            contact_point_id=CONTACT_POINT_ID,
-            contact_point=contact_point,
-            actions=tuple(actions),
-        )
-    ]
+            group_index += 1
+    return groups
+
+
+def _basis_contact_points_xy(basis: dict[str, Any], sampling: dict[str, Any]) -> list[Any]:
+    if "contact_points_xy" in basis:
+        points = basis["contact_points_xy"]
+    else:
+        points = [basis.get("contact_point_xy", sampling.get("contact_point_xy", [0.0, 0.0]))]
+    if not isinstance(points, (list, tuple)) or not points:
+        raise ValueError("response_basis.contact_points_xy must be a non-empty list")
+    result = []
+    for point in points:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise ValueError(f"Expected contact point [x, y], got: {point}")
+        result.append(point)
+    return result
+
+
+def _basis_material_configs(data: dict[str, Any], basis: dict[str, Any], base_material: MaterialConfig) -> list[MaterialConfig]:
+    material_grid = basis.get("material_grid") or {}
+    explicit_materials = basis.get("materials")
+    if explicit_materials is not None:
+        if not isinstance(explicit_materials, (list, tuple)) or not explicit_materials:
+            raise ValueError("response_basis.materials must be a non-empty list")
+        configs = []
+        for item in explicit_materials:
+            if not isinstance(item, dict):
+                raise ValueError(f"Expected material mapping, got: {item}")
+            configs.append(
+                MaterialConfig(
+                    youngs_modulus=float(item.get("young_modulus", item.get("youngs_modulus", base_material.youngs_modulus))),
+                    poisson_ratio=float(item.get("poisson_ratio", base_material.poisson_ratio)),
+                    density=float(item.get("density", base_material.density)),
+                    damping=float(item.get("damping", base_material.damping)),
+                    boundary_condition=str(item.get("boundary_condition", base_material.boundary_condition)),
+                    extra=dict(base_material.extra),
+                )
+            )
+        return configs
+
+    if not material_grid:
+        return [base_material]
+    young_values = _as_list(material_grid.get("young_modulus", material_grid.get("youngs_modulus", base_material.youngs_modulus)))
+    poisson_values = _as_list(material_grid.get("poisson_ratio", base_material.poisson_ratio))
+    density_values = _as_list(material_grid.get("density", base_material.density))
+    damping_values = _as_list(material_grid.get("damping", base_material.damping))
+    configs = []
+    for young in young_values:
+        for poisson in poisson_values:
+            for density in density_values:
+                for damping in damping_values:
+                    configs.append(
+                        MaterialConfig(
+                            youngs_modulus=float(young),
+                            poisson_ratio=float(poisson),
+                            density=float(density),
+                            damping=float(damping),
+                            boundary_condition=base_material.boundary_condition,
+                            extra=dict(base_material.extra),
+                        )
+                    )
+    return configs
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
 
 
 def _build_mode_c_trajectories(data: dict[str, Any], geometry: GeometryConfig, *, sample_start: int) -> list[ModeCTrajectoryPlan]:

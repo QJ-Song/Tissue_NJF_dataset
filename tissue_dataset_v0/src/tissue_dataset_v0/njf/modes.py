@@ -38,6 +38,11 @@ def generate_njf_dataset(plan: NJFDatasetPlan, *, overwrite: bool = False) -> Pa
                     action_plan,
                     mode="response_basis_group",
                     group_id=group.group_id,
+                    material=group.material,
+                    state_id=group.state_id,
+                    material_id=group.material_id,
+                    boundary_id=group.boundary_id,
+                    contact_point_id=group.contact_point_id,
                 )
                 sample_dir = pipeline.generate(sample_root, planned.request, existing_policy="error")
                 group_sample_dirs.append(sample_dir)
@@ -69,10 +74,10 @@ def _sample_record(root: Path, sample_dir: Path, planned: PlannedSample, *, spli
         "group_id": planned.group_id,
         "trajectory_id": planned.trajectory_id,
         "path": str(sample_dir.relative_to(root)),
-        "state_id": "state_000001",
-        "material_id": "material_000001",
-        "boundary_id": "boundary_000001",
-        "contact_point_id": "contact_000001",
+        "state_id": planned.request.config.extra.get("state_id", "state_000001"),
+        "material_id": planned.request.config.extra.get("material_id", "material_000001"),
+        "boundary_id": planned.request.config.extra.get("boundary_id", "boundary_000001"),
+        "contact_point_id": planned.request.config.extra.get("contact_point_id", "contact_000001"),
         "action_id": action_plan.action_id,
         "step_id": 0,
         "delta_a_m": action_plan.magnitude_m,
