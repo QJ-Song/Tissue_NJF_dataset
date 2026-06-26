@@ -353,6 +353,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Docs updated for current Mode A/B/C state, group/trajectory schema, and field inventory.
 * [x] Non-smoke demo config added for K=24 and T=10.
 * [x] Response basis analysis script added and sanity-checked on smoke output.
+* [x] Non-smoke demo dataset generated, validated, and analyzed.
 
 ## Notes
 
@@ -387,7 +388,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: run the non-smoke demo when runtime is acceptable, validate `tissue_dataset_v0/outputs/sofa_njf_demo`, and then add rollout analysis for `T>=10` trajectories.
+Next step: add rollout analysis for `T>=10` trajectories, starting with stepwise response norms, cumulative deformation, contact-point/tool-pose consistency over time, and a placeholder interface for future rolling NJF prediction metrics.
 
 
 ## Demo Analysis Notes
@@ -396,4 +397,39 @@ Added `tissue_dataset_v0/configs/sofa_njf_demo.yaml` as the first non-smoke data
 
 Added `tissue_dataset_v0/scripts/analyze_response_basis.py`. It reads `groups/group_*/actions.npy` and `responses.npy`, computes SVD/PCA spectrum, cumulative explained variance, entropy effective rank, and leave-one-action-out reconstruction error. Smoke sanity check on `tissue_dataset_v0/outputs/sofa_njf_smoke` passed and reported expected `K=3` limitations.
 
-Do not treat smoke analysis metrics as scientific evidence. The next meaningful response-basis check should run on `tissue_dataset_v0/outputs/sofa_njf_demo` after generating the demo dataset.
+Do not treat smoke analysis metrics as scientific evidence. The meaningful response-basis check should use `tissue_dataset_v0/outputs/sofa_njf_demo` or a larger dataset with at least `K>=12` actions per group.
+
+Generated and validated non-smoke demo output:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_demo
+```
+
+Checks run and passed:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_demo.yaml --overwrite
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_demo
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/sofa_njf_demo
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_dataset_smoke.py tissue_dataset_v0/outputs/sofa_njf_demo/samples --require tool_pose_0 --require tool_pose_1 --require tool_geometry --require contact_summary --require fixed_node_indices --require free_node_indices --require boundary_mask --require boundary --require solver_summary
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_tool_direction.py tissue_dataset_v0/outputs/sofa_njf_demo/samples --min-samples 28 --max-angle-error-deg 0.1 --min-motion-mm 0.04
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_contact.py tissue_dataset_v0/outputs/sofa_njf_demo/samples --min-samples 28
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py tissue_dataset_v0/outputs/sofa_njf_demo/samples --min-samples 28
+```
+
+Validation summary:
+
+```text
+samples=28 groups=1 trajectories=1 errors=0 warnings=0
+group_000001: actions=24 unique_dirs=8 max_response=0.0020564389415085316
+traj_000001: steps=10 max_step=9.999999747378752e-05 max_response=0.0017272776458412409
+```
+
+Response-basis analysis on `group_000001`:
+
+```text
+K=24 dirs=8 effective_rank=1.845
+leave_one_action_out_mean=0.018086
+leave_one_action_out_max=0.034408
+cumulative_explained_top=[0.7720297196504429, 0.977187054379935, 0.9997504921454429, 0.9999834543594373, 0.9999896814547918]
+```

@@ -202,7 +202,7 @@ The following should remain outside v1 unless required by validation failure:
 
 A larger demo config is available at `tissue_dataset_v0/configs/sofa_njf_demo.yaml`. It keeps the same fixed tissue/material/boundary/contact-point setup as the smoke config, but expands the response-basis group to `K=24` actions and rollout to `T=10` steps. This config is intended for first meaningful basis/rollout analysis, not for full training scale.
 
-Generate and validate the demo dataset when runtime is acceptable:
+Generate and validate the demo dataset with:
 
 ```bash
 scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_demo.yaml --overwrite
@@ -216,3 +216,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py t
 ```
 
 The analysis script reads `groups/group_*/actions.npy` and `responses.npy`, computes singular values, explained variance, effective rank, and leave-one-action-out reconstruction error. It can also run on the smoke dataset, but `K=3` results should be treated only as a script sanity check.
+
+Current non-smoke demo status: generated and validated at `tissue_dataset_v0/outputs/sofa_njf_demo`. The validator reports `samples=28 groups=1 trajectories=1 errors=0 warnings=0`; `group_000001` has `K=24` actions and `8` unique directions; `traj_000001` has `T=10` steps. Response-basis analysis reports effective rank `1.845`, leave-one-action-out mean error `0.018086`, and cumulative explained variance top values `[0.7720297196504429, 0.977187054379935, 0.9997504921454429, 0.9999834543594373, 0.9999896814547918]`.
+
+Next analysis gap: add a rollout analyzer for `trajectories/traj_*` that reports stepwise response norms, cumulative deformation, contact/tool consistency, and later rolling-NJF prediction errors.
