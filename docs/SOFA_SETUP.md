@@ -198,3 +198,28 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tis
 
 The observed smoke result generated 7 samples: 3 Mode A local perturbation samples, 3 Mode B response-basis samples grouped as `groups/group_000001`, and 1 Mode C rollout source sample assembled into `trajectories/traj_000001`. Validation passed with expected warnings that `K=3` and `T=3` are smoke-sized; basis analysis should use `K>=12` and rollout validation should use `T>=10`. Dataset reader smoke, tool-direction check, contact check, and boundary/solver check also passed.
 
+
+
+## NJF Demo Dataset And Basis Analysis
+
+The non-smoke demo config is `tissue_dataset_v0/configs/sofa_njf_demo.yaml`. It expands the smoke setup to one `K=24` response-basis group and one `T=10` rollout trajectory while keeping fixed geometry, material, boundary, and contact point.
+
+Planner sanity check observed:
+
+```text
+mode_a=3
+mode_b_groups=1
+mode_b_actions=24
+mode_c=1
+rollout_steps=10
+```
+
+Run the demo dataset when a larger SOFA generation is acceptable:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_demo.yaml --overwrite
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_demo
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/sofa_njf_demo
+```
+
+The basis analysis script has been sanity-checked on `tissue_dataset_v0/outputs/sofa_njf_smoke`, where it reports expected smoke-sized warnings for `K=3`.

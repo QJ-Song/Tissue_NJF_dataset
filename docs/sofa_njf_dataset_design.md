@@ -196,3 +196,23 @@ The following should remain outside v1 unless required by validation failure:
 - cutting, puncture, tearing, suturing;
 - photorealistic rendering;
 - full robot dynamics.
+
+
+## Non-Smoke Demo And Analysis
+
+A larger demo config is available at `tissue_dataset_v0/configs/sofa_njf_demo.yaml`. It keeps the same fixed tissue/material/boundary/contact-point setup as the smoke config, but expands the response-basis group to `K=24` actions and rollout to `T=10` steps. This config is intended for first meaningful basis/rollout analysis, not for full training scale.
+
+Generate and validate the demo dataset when runtime is acceptable:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_demo.yaml --overwrite
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_demo
+```
+
+Response-basis analysis is available through:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/sofa_njf_demo
+```
+
+The analysis script reads `groups/group_*/actions.npy` and `responses.npy`, computes singular values, explained variance, effective rank, and leave-one-action-out reconstruction error. It can also run on the smoke dataset, but `K=3` results should be treated only as a script sanity check.

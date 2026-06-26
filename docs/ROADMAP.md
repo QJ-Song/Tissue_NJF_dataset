@@ -136,7 +136,7 @@ Acceptance criteria:
 
 - NJF can be trained and compared with deformation prediction baseline.
 
-Current planning update: before model work, finish SOFA NJF dataset v1. The lightweight NJF orchestration layer, Mode A local perturbation generation, smoke-sized Mode B response basis groups, smoke-sized Mode C rollout trajectories, and Mode A/B/C dataset validator are implemented. Remaining major work is larger K/T demo generation, split policy refinement, response-basis analysis scripts, rollout evaluation scripts, and eventual training loaders. See `tasks/0013-controlled-sofa-contact-dataset-v1.md` and `docs/sofa_njf_dataset_design.md`.
+Current planning update: before model work, finish SOFA NJF dataset v1. The lightweight NJF orchestration layer, Mode A local perturbation generation, smoke-sized Mode B response basis groups, smoke-sized Mode C rollout trajectories, and Mode A/B/C dataset validator are implemented. Remaining major work is running/validating the larger K/T demo, split policy refinement, rollout evaluation scripts, and eventual training loaders. A non-smoke demo config and response-basis analysis script now exist. See `tasks/0013-controlled-sofa-contact-dataset-v1.md` and `docs/sofa_njf_dataset_design.md`.
 
 ## Stage 8: Evaluation and Paper Figures
 

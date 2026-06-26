@@ -351,6 +351,8 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Dataset-level Mode A/B/C validator implemented.
 * [x] NJF Mode A/B/C smoke dataset generated and validated.
 * [x] Docs updated for current Mode A/B/C state, group/trajectory schema, and field inventory.
+* [x] Non-smoke demo config added for K=24 and T=10.
+* [x] Response basis analysis script added and sanity-checked on smoke output.
 
 ## Notes
 
@@ -385,5 +387,13 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: add non-smoke dataset generation settings and analysis scripts: response-basis checks for `K>=12` and rollout checks for `T>=10`.
+Next step: run the non-smoke demo when runtime is acceptable, validate `tissue_dataset_v0/outputs/sofa_njf_demo`, and then add rollout analysis for `T>=10` trajectories.
 
+
+## Demo Analysis Notes
+
+Added `tissue_dataset_v0/configs/sofa_njf_demo.yaml` as the first non-smoke dataset config. It keeps fixed geometry/material/boundary/contact point, expands Mode B to `K=24`, and expands Mode C to `T=10`. Planner sanity check confirmed `mode_a=3`, `mode_b_groups=1`, `mode_b_actions=24`, `mode_c=1`, and `rollout_steps=10`.
+
+Added `tissue_dataset_v0/scripts/analyze_response_basis.py`. It reads `groups/group_*/actions.npy` and `responses.npy`, computes SVD/PCA spectrum, cumulative explained variance, entropy effective rank, and leave-one-action-out reconstruction error. Smoke sanity check on `tissue_dataset_v0/outputs/sofa_njf_smoke` passed and reported expected `K=3` limitations.
+
+Do not treat smoke analysis metrics as scientific evidence. The next meaningful response-basis check should run on `tissue_dataset_v0/outputs/sofa_njf_demo` after generating the demo dataset.
