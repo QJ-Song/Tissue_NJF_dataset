@@ -346,11 +346,11 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Stage D4 directional small-step probe motion implemented for complete Mode B response-basis data.
 * [x] Lightweight `njf/` orchestration layer added.
 * [x] Mode A local perturbation implemented.
-* [ ] Mode B response basis groups implemented.
-* [ ] Mode C rollout trajectories implemented.
-* [x] Dataset-level Mode A validator implemented.
-* [x] NJF Mode A smoke dataset generated and validated.
-* [x] Docs updated for current Mode A state and field inventory.
+* [x] Mode B response basis groups implemented for smoke-sized K=3 groups.
+* [x] Mode C rollout trajectories implemented for smoke-sized T=3 trajectories.
+* [x] Dataset-level Mode A/B/C validator implemented.
+* [x] NJF Mode A/B/C smoke dataset generated and validated.
+* [x] Docs updated for current Mode A/B/C state, group/trajectory schema, and field inventory.
 
 ## Notes
 
@@ -364,12 +364,12 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 
 ## Current Implementation Notes
 
-The current implementation adds a lightweight `tissue_dataset_v0.njf` layer and keeps SOFA physics in `SofaFemBackend`. `sofa_njf_dataset.yaml` currently enables Mode A only and generates three local perturbation samples with `0.05`, `0.1`, and `0.2` mm actions. The dataset root contains `metadata.json`, copied `config.yaml`, `splits.json`, `samples/`, empty `groups/`, and empty `trajectories/`.
+The current implementation adds a lightweight `tissue_dataset_v0.njf` layer and keeps SOFA physics in `SofaFemBackend`. `sofa_njf_dataset.yaml` currently enables Mode A, Mode B, and Mode C. It generates three Mode A local perturbation samples with `0.05`, `0.1`, and `0.2` mm actions, one smoke-sized Mode B response-basis group with three fixed-contact `0.1` mm actions, and one smoke-sized Mode C rollout trajectory with three `0.1` mm steps. The dataset root contains `metadata.json`, copied `config.yaml`, `splits.json`, `samples/`, `groups/group_000001/`, and `trajectories/traj_000001/`.
 
 Validated smoke output:
 
 ```text
-tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke
+tissue_dataset_v0/outputs/sofa_njf_smoke
 ```
 
 Checks run and passed:
@@ -377,12 +377,13 @@ Checks run and passed:
 ```bash
 python3 -m py_compile tissue_dataset_v0/src/tissue_dataset_v0/njf/*.py tissue_dataset_v0/scripts/generate_njf_dataset.py tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/scripts/run_njf_smoke_test.py
 scripts/run_sofa_python.sh tissue_dataset_v0/scripts/run_njf_smoke_test.py --overwrite
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_dataset_smoke.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke/samples --require tool_pose_0 --require tool_pose_1 --require tool_geometry --require contact_summary --require fixed_node_indices --require free_node_indices --require boundary_mask --require boundary --require solver_summary
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_tool_direction.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke/samples --min-samples 3 --max-angle-error-deg 0.1 --min-motion-mm 0.04
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_contact.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke/samples --min-samples 3
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke/samples --min-samples 3
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_smoke
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_dataset_smoke.py tissue_dataset_v0/outputs/sofa_njf_smoke/samples --require tool_pose_0 --require tool_pose_1 --require tool_geometry --require contact_summary --require fixed_node_indices --require free_node_indices --require boundary_mask --require boundary --require solver_summary
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_tool_direction.py tissue_dataset_v0/outputs/sofa_njf_smoke/samples --min-samples 7 --max-angle-error-deg 0.1 --min-motion-mm 0.04
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_contact.py tissue_dataset_v0/outputs/sofa_njf_smoke/samples --min-samples 7
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py tissue_dataset_v0/outputs/sofa_njf_smoke/samples --min-samples 7
+scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: implement Mode B response basis groups by grouping multiple existing Mode A-style local samples that share `state_id`, `material_id`, `boundary_id`, `contact_point_id`, tool geometry, and solver config, while varying only action direction and magnitude.
+Next step: add non-smoke dataset generation settings and analysis scripts: response-basis checks for `K>=12` and rollout checks for `T>=10`.
 

@@ -139,11 +139,11 @@ Existing `sample_*` artifacts remain valid for legacy single-step data. NJF v1 a
 The lightweight orchestration layer now exists under `tissue_dataset_v0/src/tissue_dataset_v0/njf/`:
 
 ```text
-njf/schema.py      # plan/action dataclasses
-njf/plan.py        # YAML -> NJFDatasetPlan and Mode A SampleRequest builders
-njf/modes.py       # implemented Mode A generation
-njf/recorder.py    # dataset root, metadata, config copy, splits
-njf/validate.py    # dataset-level Mode A validator
+njf/schema.py      # plan/action/group/trajectory dataclasses
+njf/plan.py        # YAML -> NJFDatasetPlan and Mode A/B/C SampleRequest builders
+njf/modes.py       # implemented Mode A, Mode B group, and Mode C rollout generation
+njf/recorder.py    # dataset root, group artifacts, trajectory artifacts, metadata, config copy, splits
+njf/validate.py    # dataset-level Mode A/B/C validator
 ```
 
 Implemented commands:
@@ -151,10 +151,10 @@ Implemented commands:
 ```bash
 scripts/run_sofa_python.sh tissue_dataset_v0/scripts/run_njf_smoke_test.py --overwrite
 scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_dataset.yaml --overwrite
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_smoke
 ```
 
-The current `sofa_njf_dataset.yaml` smoke config implements Mode A only. It writes three local perturbation samples using `0.05`, `0.1`, and `0.2` mm downward actions under `dataset_root/samples/`, plus dataset-level `metadata.json`, copied `config.yaml`, empty `groups/`, empty `trajectories/`, and `splits.json`. Mode B and Mode C directories are intentionally present as placeholders, but group and trajectory artifacts are not yet generated.
+The current `sofa_njf_dataset.yaml` smoke config implements Mode A, Mode B, and Mode C. It writes three local perturbation samples using `0.05`, `0.1`, and `0.2` mm downward actions, one response-basis group with three fixed-contact `0.1` mm actions, and one rollout trajectory with three `0.1` mm steps. The output root is `tissue_dataset_v0/outputs/sofa_njf_smoke`. The trajectory is assembled from a continuous rollout source sample and saved under `trajectories/traj_000001`.
 
 ## Validation Requirements
 
@@ -177,12 +177,12 @@ The NJF dataset validator should check:
 2. Finish Stage D3 contact summary.
 3. Finish Stage D5 boundary and solver metadata.
 4. Finish D4 small-step directional probe motion for complete response-basis data; keep vertical-only only as smoke/debug/regression.
-5. Add the lightweight `njf/` orchestration layer. Done for Mode A.
+5. Add the lightweight `njf/` orchestration layer. Done for Mode A/B/C.
 6. Implement Mode A local perturbation. Done for the current smoke config.
-7. Implement Mode B response basis groups. Next.
-8. Implement Mode C rollout trajectories.
-9. Extend dataset-level validation from Mode A to groups and trajectories.
-10. Add split metadata and a small demo dataset command beyond smoke.
+7. Implement Mode B response basis groups. Done for smoke-sized K=3 groups.
+8. Implement Mode C rollout trajectories. Done for smoke-sized T=3 trajectories.
+9. Extend dataset-level validation from Mode A/B to trajectories. Done for smoke validation.
+10. Add larger non-smoke demo generation, split policy, and analysis scripts.
 
 ## Deferred Work
 

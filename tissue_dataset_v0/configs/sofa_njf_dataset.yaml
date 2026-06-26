@@ -1,11 +1,11 @@
 dataset:
-  output_root: ../outputs/sofa_njf_mode_a_smoke
+  output_root: ../outputs/sofa_njf_smoke
   random_seed: 42
   sample_id_start: 1
   modes:
     local_perturbation: true
-    response_basis_group: false
-    rollout_trajectory: false
+    response_basis_group: true
+    rollout_trajectory: true
 
 backend:
   type: sofa_fem
@@ -56,6 +56,22 @@ sampling:
   contact_point_xy: [0.0, 0.0]
   action_direction: [0.0, 0.0, -1.0]
   local_delta_magnitudes_mm: [0.05, 0.1, 0.2]
+  response_basis:
+    group_id: group_000001
+    contact_point_xy: [0.0, 0.0]
+    action_directions:
+      - [0.0, 0.0, -1.0]
+      - [0.0872, 0.0, -0.9962]
+      - [0.0, 0.0872, -0.9962]
+    local_delta_magnitudes_mm: [0.1]
+  rollout:
+    trajectory_id: traj_000001
+    contact_point_xy: [0.0, 0.0]
+    action_direction: [0.0, 0.0, -1.0]
+    step_size_mm: 0.1
+    num_steps: 3
+    total_displacement_mm: 0.3
+    sofa_steps_per_rollout_step: 30
 
 logging:
   enabled: true

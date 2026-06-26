@@ -179,9 +179,9 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_tool_direction.py tis
 
 D4 maps saved action direction to actual probe center motion for `probe_contact`. The directional smoke config uses a conservative 15 degree cone near the center region and generated 3 samples with action tilt about `4.9` to `9.4` degrees, direction error below `0.0001` degrees, and bounded max displacement from about `1.06 mm` to `4.10 mm`. The small-step smoke config uses `0.2 mm` depth and zero clearance; the saved tool motion was `0.200 mm` with contact detected from step `0`.
 
-## NJF Mode A Smoke Dataset
+## NJF Smoke Dataset
 
-The current SOFA NJF smoke path uses the lightweight `tissue_dataset_v0.njf` orchestration layer above the existing single-sample pipeline. It generates Mode A local perturbation samples only; Mode B groups and Mode C trajectories are still planned.
+The current SOFA NJF smoke path uses the lightweight `tissue_dataset_v0.njf` orchestration layer above the existing single-sample pipeline. It generates Mode A local perturbation samples, one smoke-sized Mode B response-basis group, and one smoke-sized Mode C rollout trajectory.
 
 Generate and validate the smoke dataset:
 
@@ -193,8 +193,8 @@ Equivalent separate commands:
 
 ```bash
 scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_dataset.yaml --overwrite
-scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_mode_a_smoke
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_smoke
 ```
 
-The observed smoke result generated 3 samples with `0.05`, `0.1`, and `0.2` mm probe motions and passed NJF validation, dataset reader smoke, tool-direction check, contact check, and boundary/solver check.
+The observed smoke result generated 7 samples: 3 Mode A local perturbation samples, 3 Mode B response-basis samples grouped as `groups/group_000001`, and 1 Mode C rollout source sample assembled into `trajectories/traj_000001`. Validation passed with expected warnings that `K=3` and `T=3` are smoke-sized; basis analysis should use `K>=12` and rollout validation should use `T>=10`. Dataset reader smoke, tool-direction check, contact check, and boundary/solver check also passed.
 

@@ -8,9 +8,14 @@ import numpy as np
 import yaml
 
 from tissue_dataset_v0.config import default_sample_request
-from tissue_dataset_v0.schema import ActionSpec, GeometryConfig, LoggingConfig, MaterialConfig, SampleConfig, SampleRequest
+from tissue_dataset_v0.schema import ActionSpec, GeometryConfig, LoggingConfig, MaterialConfig, SampleConfig
 
-from .schema import ModeAActionPlan, NJFDatasetPlan, PlannedSample
+from .schema import ModeAActionPlan, ModeBGroupPlan, ModeCTrajectoryPlan, NJFDatasetPlan, PlannedSample
+
+STATE_ID = "state_000001"
+MATERIAL_ID = "material_000001"
+BOUNDARY_ID = "boundary_000001"
+CONTACT_POINT_ID = "contact_000001"
 
 
 def load_njf_plan(path: Path, *, output_override: Path | None = None) -> NJFDatasetPlan:
@@ -34,15 +39,25 @@ def load_njf_plan(path: Path, *, output_override: Path | None = None) -> NJFData
     enabled = artifacts.get("include")
     disabled = artifacts.get("exclude", ()) or ()
     seed = int(dataset.get("random_seed", dataset.get("seed", 0)))
-    mode_a_actions = tuple(_build_mode_a_actions(data, geometry))
+    sample_start = int(dataset.get("sample_id_start", 1))
+    mode_a_actions = tuple(_build_mode_a_actions(data, geometry, sample_start=sample_start))
+    mode_b_start = int(dataset.get("basis_sample_id_start", sample_start + len(mode_a_actions)))
+    mode_b_groups = tuple(_build_mode_b_groups(data, geometry, sample_start=mode_b_start))
+    mode_b_sample_count = sum(len(group.actions) for group in mode_b_groups)
+    mode_c_start = int(dataset.get("rollout_sample_id_start", mode_b_start + mode_b_sample_count))
+    mode_c_trajectories = tuple(_build_mode_c_trajectories(data, geometry, sample_start=mode_c_start))
 
     metadata = {
         "dataset_type": "sofa_njf_dataset_v1",
-        "implemented_modes": {"local_perturbation": bool(modes.get("local_perturbation", False)), "response_basis_group": False, "rollout_trajectory": False},
+        "implemented_modes": {
+            "local_perturbation": bool(modes.get("local_perturbation", False)),
+            "response_basis_group": bool(modes.get("response_basis_group", False)),
+            "rollout_trajectory": bool(modes.get("rollout_trajectory", False)),
+        },
         "mode_status": {
             "local_perturbation": "implemented",
-            "response_basis_group": "planned",
-            "rollout_trajectory": "planned",
+            "response_basis_group": "implemented",
+            "rollout_trajectory": "implemented",
         },
         "source_config": str(path),
     }
@@ -58,11 +73,21 @@ def load_njf_plan(path: Path, *, output_override: Path | None = None) -> NJFData
         enabled_artifacts=tuple(enabled) if enabled is not None else None,
         disabled_artifacts=tuple(disabled),
         mode_a_actions=mode_a_actions,
+        mode_b_groups=mode_b_groups,
+        mode_c_trajectories=mode_c_trajectories,
         metadata=metadata,
     )
 
 
-def planned_sample_from_action(plan: NJFDatasetPlan, action_plan: ModeAActionPlan) -> PlannedSample:
+def planned_sample_from_action(
+    plan: NJFDatasetPlan,
+    action_plan: ModeAActionPlan,
+    *,
+    mode: str = "local_perturbation",
+    group_id: str | None = None,
+    trajectory_id: str | None = None,
+    extra_updates: dict[str, Any] | None = None,
+) -> PlannedSample:
     base = default_sample_request(sample_id=action_plan.sample_id)
     action = ActionSpec(
         vector=(
@@ -73,10 +98,12 @@ def planned_sample_from_action(plan: NJFDatasetPlan, action_plan: ModeAActionPla
             float(action_plan.direction[2]),
             float(action_plan.magnitude_m),
         ),
-        action_type="local_perturbation",
+        action_type=mode,
         contact_point=action_plan.contact_point,
         extra={
-            "njf_mode": "local_perturbation",
+            "njf_mode": mode,
+            "group_id": group_id,
+            "trajectory_id": trajectory_id,
             "action_id": action_plan.action_id,
             "delta_a_m": action_plan.magnitude_m,
         },
@@ -84,11 +111,13 @@ def planned_sample_from_action(plan: NJFDatasetPlan, action_plan: ModeAActionPla
     extra = dict(plan.backend_extra)
     extra.update(
         {
-            "njf_mode": "local_perturbation",
-            "state_id": "state_000001",
-            "material_id": "material_000001",
-            "boundary_id": "boundary_000001",
-            "contact_point_id": "contact_000001",
+            "njf_mode": mode,
+            "group_id": group_id,
+            "trajectory_id": trajectory_id,
+            "state_id": STATE_ID,
+            "material_id": MATERIAL_ID,
+            "boundary_id": BOUNDARY_ID,
+            "contact_point_id": CONTACT_POINT_ID,
             "action_id": action_plan.action_id,
             "step_id": 0,
             "delta_a_m": action_plan.magnitude_m,
@@ -96,15 +125,17 @@ def planned_sample_from_action(plan: NJFDatasetPlan, action_plan: ModeAActionPla
             "contact_point_mode": "fixed_material_point",
         }
     )
+    if extra_updates:
+        extra.update(extra_updates)
     request = replace(
         base,
         config=SampleConfig(
             sample_id=action_plan.sample_id,
-            scene_id="sofa_njf_mode_a_v1",
+            scene_id=f"sofa_njf_{mode}_v1",
             tissue_type="sofa_tissue",
             simulator="sofa_fem",
             unit="meter",
-            notes="SOFA NJF Mode A local perturbation sample",
+            notes=f"SOFA NJF {mode} sample",
             extra=extra,
         ),
         geometry=plan.geometry,
@@ -114,7 +145,31 @@ def planned_sample_from_action(plan: NJFDatasetPlan, action_plan: ModeAActionPla
         enabled_artifacts=plan.enabled_artifacts,
         disabled_artifacts=plan.disabled_artifacts,
     )
-    return PlannedSample(request=request, mode="local_perturbation", action_plan=action_plan)
+    return PlannedSample(request=request, mode=mode, action_plan=action_plan, group_id=group_id, trajectory_id=trajectory_id)
+
+
+def planned_sample_from_trajectory(plan: NJFDatasetPlan, trajectory: ModeCTrajectoryPlan) -> PlannedSample:
+    action_plan = ModeAActionPlan(
+        action_id=f"{trajectory.trajectory_id}_total_action",
+        direction=trajectory.direction,
+        magnitude_m=trajectory.total_displacement_m,
+        contact_point=trajectory.contact_point,
+        sample_id=trajectory.sample_id,
+    )
+    extra_updates = {
+        "rollout_step_size_m": trajectory.step_size_m,
+        "rollout_total_displacement_m": trajectory.total_displacement_m,
+        "rollout_num_steps": trajectory.num_steps,
+        "sofa_total_steps": trajectory.num_steps * trajectory.sofa_steps_per_rollout_step,
+        "sofa_rollout_steps_per_step": trajectory.sofa_steps_per_rollout_step,
+    }
+    return planned_sample_from_action(
+        plan,
+        action_plan,
+        mode="rollout_trajectory",
+        trajectory_id=trajectory.trajectory_id,
+        extra_updates=extra_updates,
+    )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -201,9 +256,7 @@ def _build_backend_extra(data: dict[str, Any], geometry: GeometryConfig) -> dict
     radius_mm = float(tool.get("radius_mm", 10.0))
     extra.setdefault("sofa_probe_radius", radius_mm / 1000.0)
     extra.setdefault("sofa_probe_clearance", float(tool.get("clearance_mm", 0.0)) / 1000.0)
-    sampling = data.get("sampling", {}) or {}
-    magnitudes = sampling.get("local_delta_magnitudes_mm", [0.05, 0.1, 0.2])
-    max_depth_m = max(float(v) for v in magnitudes) / 1000.0
+    max_depth_m = _max_configured_magnitude_m(data)
     extra.setdefault("sofa_probe_contact_max_depth", max_depth_m)
     extra.setdefault("sofa_probe_contact_distance", float(contact.get("contact_distance_mm", 2.0)) / 1000.0)
     extra.setdefault("sofa_probe_alarm_distance", float(contact.get("alarm_distance_mm", 6.0)) / 1000.0)
@@ -217,18 +270,33 @@ def _build_backend_extra(data: dict[str, Any], geometry: GeometryConfig) -> dict
     return extra
 
 
-def _build_mode_a_actions(data: dict[str, Any], geometry: GeometryConfig) -> list[ModeAActionPlan]:
+def _max_configured_magnitude_m(data: dict[str, Any]) -> float:
+    sampling = data.get("sampling", {}) or {}
+    values: list[float] = [float(v) for v in sampling.get("local_delta_magnitudes_mm", [0.05, 0.1, 0.2])]
+    basis = sampling.get("response_basis", {}) or {}
+    values.extend(float(v) for v in basis.get("local_delta_magnitudes_mm", []))
+    rollout = sampling.get("rollout", {}) or {}
+    if rollout:
+        if "total_displacement_mm" in rollout:
+            values.append(float(rollout["total_displacement_mm"]))
+        if "total_displacements_mm" in rollout:
+            values.extend(float(v) for v in rollout["total_displacements_mm"])
+        if "step_size_mm" in rollout and "num_steps" in rollout:
+            values.append(float(rollout["step_size_mm"]) * int(rollout["num_steps"]))
+    return max(values) / 1000.0
+
+
+def _build_mode_a_actions(data: dict[str, Any], geometry: GeometryConfig, *, sample_start: int) -> list[ModeAActionPlan]:
     sampling = data.get("sampling", {}) or {}
     magnitudes_mm = sampling.get("local_delta_magnitudes_mm", [0.05, 0.1, 0.2])
     contact_xy = sampling.get("contact_point_xy", [0.0, 0.0])
     direction = _normalize_direction(sampling.get("action_direction", [0.0, 0.0, -1.0]))
-    contact_point = (float(contact_xy[0]), float(contact_xy[1]), float(geometry.thickness * 0.5))
-    sample_start = int((data.get("dataset", {}) or {}).get("sample_id_start", 1))
+    contact_point = _contact_point_from_xy(contact_xy, geometry)
     actions: list[ModeAActionPlan] = []
     for index, magnitude_mm in enumerate(magnitudes_mm):
         actions.append(
             ModeAActionPlan(
-                action_id=f"action_{index + 1:06d}",
+                action_id=f"mode_a_action_{index + 1:06d}",
                 direction=direction,
                 magnitude_m=float(magnitude_mm) / 1000.0,
                 contact_point=contact_point,
@@ -236,6 +304,83 @@ def _build_mode_a_actions(data: dict[str, Any], geometry: GeometryConfig) -> lis
             )
         )
     return actions
+
+
+def _build_mode_b_groups(data: dict[str, Any], geometry: GeometryConfig, *, sample_start: int) -> list[ModeBGroupPlan]:
+    sampling = data.get("sampling", {}) or {}
+    basis = sampling.get("response_basis", {}) or {}
+    contact_xy = basis.get("contact_point_xy", sampling.get("contact_point_xy", [0.0, 0.0]))
+    contact_point = _contact_point_from_xy(contact_xy, geometry)
+    directions = basis.get(
+        "action_directions",
+        [
+            [0.0, 0.0, -1.0],
+            [0.0872, 0.0, -0.9962],
+            [0.0, 0.0872, -0.9962],
+        ],
+    )
+    magnitudes_mm = basis.get("local_delta_magnitudes_mm", [0.1])
+    group_id = str(basis.get("group_id", "group_000001"))
+    actions: list[ModeAActionPlan] = []
+    index = 0
+    for direction_value in directions:
+        direction = _normalize_direction(direction_value)
+        for magnitude_mm in magnitudes_mm:
+            actions.append(
+                ModeAActionPlan(
+                    action_id=f"{group_id}_action_{index + 1:06d}",
+                    direction=direction,
+                    magnitude_m=float(magnitude_mm) / 1000.0,
+                    contact_point=contact_point,
+                    sample_id=sample_start + index,
+                )
+            )
+            index += 1
+    return [
+        ModeBGroupPlan(
+            group_id=group_id,
+            state_id=STATE_ID,
+            material_id=MATERIAL_ID,
+            boundary_id=BOUNDARY_ID,
+            contact_point_id=CONTACT_POINT_ID,
+            contact_point=contact_point,
+            actions=tuple(actions),
+        )
+    ]
+
+
+def _build_mode_c_trajectories(data: dict[str, Any], geometry: GeometryConfig, *, sample_start: int) -> list[ModeCTrajectoryPlan]:
+    sampling = data.get("sampling", {}) or {}
+    rollout = sampling.get("rollout", {}) or {}
+    contact_xy = rollout.get("contact_point_xy", sampling.get("contact_point_xy", [0.0, 0.0]))
+    contact_point = _contact_point_from_xy(contact_xy, geometry)
+    direction = _normalize_direction(rollout.get("action_direction", sampling.get("action_direction", [0.0, 0.0, -1.0])))
+    step_size_mm = float(rollout.get("step_size_mm", 0.1))
+    num_steps = int(rollout.get("num_steps", 3))
+    if num_steps <= 0:
+        raise ValueError("rollout.num_steps must be positive")
+    total_mm = float(rollout.get("total_displacement_mm", step_size_mm * num_steps))
+    steps_per_rollout_step = int(rollout.get("sofa_steps_per_rollout_step", 30))
+    return [
+        ModeCTrajectoryPlan(
+            trajectory_id=str(rollout.get("trajectory_id", "traj_000001")),
+            state_id=STATE_ID,
+            material_id=MATERIAL_ID,
+            boundary_id=BOUNDARY_ID,
+            contact_point_id=CONTACT_POINT_ID,
+            contact_point=contact_point,
+            direction=direction,
+            step_size_m=step_size_mm / 1000.0,
+            total_displacement_m=total_mm / 1000.0,
+            num_steps=num_steps,
+            sample_id=sample_start,
+            sofa_steps_per_rollout_step=steps_per_rollout_step,
+        )
+    ]
+
+
+def _contact_point_from_xy(contact_xy: Any, geometry: GeometryConfig) -> tuple[float, float, float]:
+    return (float(contact_xy[0]), float(contact_xy[1]), float(geometry.thickness * 0.5))
 
 
 def _normalize_direction(value: Any) -> tuple[float, float, float]:

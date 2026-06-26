@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tissue_dataset_v0.njf import generate_mode_a, load_njf_plan
+from tissue_dataset_v0.njf import generate_njf_dataset, load_njf_plan
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,10 +24,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     plan = load_njf_plan(args.config, output_override=args.output)
-    if not plan.modes.get("local_perturbation", False):
-        print("Only Mode A local_perturbation is implemented in this generator step.", file=sys.stderr)
-        return 2
-    root = generate_mode_a(plan, overwrite=args.overwrite)
+    root = generate_njf_dataset(plan, overwrite=args.overwrite)
     print(f"Generated NJF dataset: {root}")
     return 0
 

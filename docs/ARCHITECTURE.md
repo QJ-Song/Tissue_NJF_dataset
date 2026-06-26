@@ -18,6 +18,7 @@ tissue_dataset_v0/
     ├── replay/                      # replay core and Isaac Sim USD export viewer
     ├── trajectory/                  # episode trajectory reader and summary writer
     ├── validation/                  # pluggable dataset validator rules and profiles
+    ├── njf/                         # NJF dataset orchestration for Mode A/B/C
     ├── logger.py                    # simulation-time logging
     ├── pipeline.py                  # backend + logger + writer orchestration
     ├── schema.py                    # dataclasses for requests/results/config
@@ -83,7 +84,7 @@ Responsible for:
 - validating schema;
 - providing model/replay-friendly data access.
 
-Current status: final sample artifacts are written by `FileSystemSampleWriter`; replay reads logged frames through `ReplayReader`; `validation/` provides a pluggable sample validator; `dataset/` provides a manifest-driven, model-agnostic `TissueSampleDataset` reader for `sample_*` artifacts. Optional future material-field artifacts for Stage B2/B3 should be manifest-declared and remain compatible with this reader. A model-specific PyTorch Dataset, collate function, normalization layer, and train/val split are still needed after the model family is chosen.
+Current status: final sample artifacts are written by `FileSystemSampleWriter`; replay reads logged frames through `ReplayReader`; `validation/` provides a pluggable sample validator; `dataset/` provides a manifest-driven, model-agnostic `TissueSampleDataset` reader for `sample_*` artifacts; `njf/` provides dataset-level orchestration for Mode A local perturbation, smoke-sized Mode B response basis groups, and smoke-sized Mode C rollout trajectories. Optional future material-field artifacts for Stage B2/B3 should be manifest-declared and remain compatible with this reader. A model-specific PyTorch Dataset, collate function, normalization layer, and train/val split are still needed after the model family is chosen.
 
 ### Trajectory Module
 

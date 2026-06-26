@@ -30,13 +30,17 @@ def main() -> int:
     else:
         status = "PASS" if report.valid else "FAIL"
         print(f"NJF dataset validation: {status}")
-        print(f"samples={len(report.samples)} errors={len(report.errors)} warnings={len(report.warnings)}")
+        print(f"samples={len(report.samples)} groups={len(report.groups)} trajectories={len(report.trajectories)} errors={len(report.errors)} warnings={len(report.warnings)}")
         for error in report.errors:
             print(f"- ERROR: {error}")
         for warning in report.warnings:
             print(f"- WARNING: {warning}")
         for sample in report.samples:
-            print(f"- {sample.get('sample_id')}: action={sample.get('action_magnitude_m')} max_disp={sample.get('max_displacement_m')} contact={sample.get('contact_detected')}")
+            print(f"- {sample.get('sample_id')}: mode={sample.get('mode')} action={sample.get('action_magnitude_m')} max_disp={sample.get('max_displacement_m')} contact={sample.get('contact_detected')}")
+        for group in report.groups:
+            print(f"- {group.get('group_id')}: actions={group.get('action_count')} unique_dirs={group.get('unique_action_directions')} max_response={group.get('max_response_m')}")
+        for trajectory in report.trajectories:
+            print(f"- {trajectory.get('trajectory_id')}: steps={trajectory.get('step_count')} max_step={trajectory.get('max_step_action_m')} max_response={trajectory.get('max_response_m')}")
     return 0 if report.valid else 1
 
 
