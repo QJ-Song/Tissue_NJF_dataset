@@ -272,4 +272,25 @@ top2_cumulative_explained_mean=0.963488
 
 `analyze_response_basis.py` now prints both per-group metrics and aggregate summaries for multi-group datasets.
 
-Next analysis gap: add model-agnostic training/evaluation loaders that can consume Mode A samples and Mode C trajectories without requiring SOFA runtime.
+## SOFA-Free Reader And Metric Harness
+
+A first model/evaluation-facing reader is available through `tissue_dataset_v0.njf.dataset.NJFDataset` and the CLI:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_njf_dataset.py DATASET_ROOT
+```
+
+The reader exposes:
+
+```text
+iter_local_samples()          # Mode A records by default
+iter_basis_groups()           # Mode B group records
+iter_rollout_trajectories()   # Mode C trajectory records
+iter_rollout_steps()          # per-step rollout dictionaries
+summary()                     # shape/count/split summary
+validate_training_view()      # shape and delta consistency checks
+```
+
+It returns numpy arrays and metadata dictionaries only. An import check on `sofa_njf_demo` reported `sofa_loaded=False` and `sofa_runtime_loaded=False`, so future training/evaluation code can consume saved data without importing SOFA. The command currently acts as a smoke/metric harness; model-specific tensors, normalization, batching, and split-aware PyTorch datasets remain future work.
+
+Next analysis gap: add model-specific training/evaluation adapters that can consume Mode A samples and Mode C trajectories without requiring SOFA runtime.

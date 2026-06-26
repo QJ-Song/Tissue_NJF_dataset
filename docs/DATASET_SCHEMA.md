@@ -318,6 +318,37 @@ The current SOFA `sample_*` layout is still the storage atom used by the NJF orc
 
 Current gaps relative to full Mode A/B/C: contact force is not reliably exported; Mode B `groups/` artifacts are generated for smoke-sized fixed-contact response basis groups, but the stored `contact_normal.npy` is currently an approximate upward normal for the fixed-topology surface. Mode C `trajectories/` artifacts are generated for smoke-sized continuous rollout source samples, with per-step actions and responses extracted from logged intermediate frames.
 
+## SOFA-Free NJF Reader
+
+The first model/evaluation-facing reader lives at `tissue_dataset_v0/src/tissue_dataset_v0/njf/dataset.py`. It reads saved arrays and JSON only; it does not import SOFA, Isaac Sim, or training frameworks. The primary class is:
+
+```python
+from tissue_dataset_v0.njf.dataset import NJFDataset
+
+dataset = NJFDataset("tissue_dataset_v0/outputs/sofa_njf_demo")
+summary = dataset.summary()
+local_records = list(dataset.iter_local_samples())
+groups = list(dataset.iter_basis_groups())
+trajectories = list(dataset.iter_rollout_trajectories())
+steps = list(dataset.iter_rollout_steps())
+```
+
+Record types:
+
+```text
+LocalPerturbationRecord: x_t, x_next, delta_x, action, delta_a, material, boundary, contact, tool poses, fixed_node_mask. `delta_a` is the 3D displacement vector `action_direction * action_magnitude`; the full compact `[contact, direction, depth]` representation remains in `action`
+ResponseBasisGroupRecord: state_initial, actions, responses, response_matrix, contact point/normal, fixed_node_mask
+RolloutTrajectoryRecord: states, actions, responses, contact_points, contact_normals, tool_poses, contact status/distances
+```
+
+Smoke-read command:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_demo --require-mode local_perturbation --require-mode response_basis_group --require-mode rollout_trajectory --min-groups 1 --min-trajectories 1
+```
+
+The script is named under the SOFA wrapper for environment consistency, but its import check has confirmed `Sofa` and `SofaRuntime` are not loaded by the reader. A plain Python environment can also run it if the package dependencies such as numpy are installed.
+
 ## Dataset Reader
 
 The current model-agnostic sample reader lives under `tissue_dataset_v0/src/tissue_dataset_v0/dataset/`. `TissueSampleDataset` discovers `sample_*` directories, reads each `sample_manifest.json`, and loads artifacts declared as `present`. The returned `SampleRecord` stores artifacts by name rather than by a fixed dataclass field list. This keeps the reader compatible with optional future fields such as tool poses, contact force, normals, RGB, depth, masks, or per-vertex attributes.

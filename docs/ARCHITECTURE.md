@@ -84,7 +84,7 @@ Responsible for:
 - validating schema;
 - providing model/replay-friendly data access.
 
-Current status: final sample artifacts are written by `FileSystemSampleWriter`; replay reads logged frames through `ReplayReader`; `validation/` provides a pluggable sample validator; `dataset/` provides a manifest-driven, model-agnostic `TissueSampleDataset` reader for `sample_*` artifacts; `njf/` provides dataset-level orchestration for Mode A local perturbation, Mode B response basis groups, and Mode C rollout trajectories. Mode B planning now supports multiple fixed contact points and a small material parameter grid while keeping the backend request-based. Optional future material-field artifacts for Stage B2/B3 should be manifest-declared and remain compatible with this reader. A model-specific PyTorch Dataset, collate function, normalization layer, and train/val split are still needed after the model family is chosen.
+Current status: final sample artifacts are written by `FileSystemSampleWriter`; replay reads logged frames through `ReplayReader`; `validation/` provides a pluggable sample validator; `dataset/` provides a manifest-driven, model-agnostic `TissueSampleDataset` reader for `sample_*` artifacts; `njf/` provides dataset-level orchestration for Mode A local perturbation, Mode B response basis groups, and Mode C rollout trajectories. Mode B planning now supports multiple fixed contact points and a small material parameter grid while keeping the backend request-based. `tissue_dataset_v0.njf.dataset.NJFDataset` is the first SOFA-free model/evaluation-facing reader for Mode A/B/C datasets; it returns numpy records and does not import SOFA or Isaac Sim. Optional future material-field artifacts for Stage B2/B3 should be manifest-declared and remain compatible with this reader. A model-specific PyTorch Dataset, collate function, normalization layer, and train/val split are still needed after the model family is chosen.
 
 ### Trajectory Module
 
@@ -134,7 +134,7 @@ Responsible for:
 - metrics;
 - evaluation scripts.
 
-Current status: no model/training module is present yet. A model-agnostic artifact reader exists, but model-specific tensors, batching, normalization, and train/val splits are not defined. Do not let future model code import Isaac Sim APIs directly; models should consume dataset readers/loaders.
+Current status: no model/training module is present yet. Model-agnostic artifact readers exist for `sample_*` artifacts and for NJF Mode A/B/C dataset roots. Model-specific tensors, batching, normalization, and train/val splits are not defined. Do not let future model code import Isaac Sim or SOFA APIs directly; models should consume saved-data readers/loaders.
 
 ### Configuration Module
 

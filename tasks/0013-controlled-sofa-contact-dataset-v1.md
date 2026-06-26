@@ -356,6 +356,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Non-smoke demo dataset generated, validated, and analyzed.
 * [x] Rollout trajectory analysis script added and validated on smoke and non-smoke outputs.
 * [x] Response Basis Batch v1 planner/config/analysis implemented and validated.
+* [x] SOFA-free NJF dataset reader and smoke/metric CLI implemented and validated.
 
 ## Notes
 
@@ -390,7 +391,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: add a model-agnostic training/evaluation-facing loader or metric harness that can consume Mode A local samples, Mode B groups, and Mode C trajectories without depending on SOFA runtime. Keep it model-agnostic until the NJF architecture is chosen.
+Next step: add split-aware model-specific adapters or a minimal baseline metric that consumes `NJFDataset` records. Keep SOFA/Isaac Sim out of model code.
 
 
 ## Demo Analysis Notes
@@ -480,4 +481,33 @@ Valid batch result:
 ```text
 validator: samples=144 groups=6 trajectories=0 errors=0 warnings=0
 basis summary: effective_rank_mean=1.903, effective_rank_range=[1.376, 2.430], leave_one_action_out_mean=0.014674, top2_cumulative_explained_mean=0.963488
+```
+
+## SOFA-Free NJF Reader Notes
+
+Added `tissue_dataset_v0/src/tissue_dataset_v0/njf/dataset.py` and `tissue_dataset_v0/scripts/read_njf_dataset.py`. The reader returns numpy-based records for Mode A/B/C without importing SOFA or Isaac Sim:
+
+```text
+LocalPerturbationRecord: x_t, x_next, delta_x, action, delta_a, material, boundary, contact, tool poses, fixed_node_mask. `delta_a` is the 3D displacement vector `action_direction * action_magnitude`; the full compact `[contact, direction, depth]` representation remains in `action`
+ResponseBasisGroupRecord: state_initial, actions, responses, response_matrix, contact point/normal, fixed_node_mask
+RolloutTrajectoryRecord: states, actions, responses, contact_points, contact_normals, tool_poses, contact status/distances
+```
+
+Checks run and passed:
+
+```bash
+python3 -m py_compile tissue_dataset_v0/src/tissue_dataset_v0/njf/dataset.py tissue_dataset_v0/src/tissue_dataset_v0/njf/__init__.py tissue_dataset_v0/scripts/read_njf_dataset.py
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_smoke --require-mode local_perturbation --require-mode response_basis_group --require-mode rollout_trajectory --min-groups 1 --min-trajectories 1
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_demo --require-mode local_perturbation --require-mode response_basis_group --require-mode rollout_trajectory --min-groups 1 --min-trajectories 1
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/read_njf_dataset.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid --require-mode response_basis_group --min-groups 6
+scripts/run_sofa_python.sh -c "import sys; from pathlib import Path; from tissue_dataset_v0.njf.dataset import NJFDataset; d=NJFDataset(Path('tissue_dataset_v0/outputs/sofa_njf_demo')); s=d.summary(); print({'sample_count': s.sample_count, 'sofa_loaded': 'Sofa' in sys.modules, 'sofa_runtime_loaded': 'SofaRuntime' in sys.modules})"
+```
+
+Smoke results:
+
+```text
+sofa_njf_smoke: samples=7, groups=1, trajectories=1
+sofa_njf_demo: samples=28, groups=1, trajectories=1
+sofa_njf_basis_batch_valid: samples=144, groups=6, trajectories=0
+SOFA import check: sofa_loaded=False, sofa_runtime_loaded=False
 ```
