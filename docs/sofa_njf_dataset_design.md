@@ -219,4 +219,12 @@ The analysis script reads `groups/group_*/actions.npy` and `responses.npy`, comp
 
 Current non-smoke demo status: generated and validated at `tissue_dataset_v0/outputs/sofa_njf_demo`. The validator reports `samples=28 groups=1 trajectories=1 errors=0 warnings=0`; `group_000001` has `K=24` actions and `8` unique directions; `traj_000001` has `T=10` steps. Response-basis analysis reports effective rank `1.845`, leave-one-action-out mean error `0.018086`, and cumulative explained variance top values `[0.7720297196504429, 0.977187054379935, 0.9997504921454429, 0.9999834543594373, 0.9999896814547918]`.
 
-Next analysis gap: add a rollout analyzer for `trajectories/traj_*` that reports stepwise response norms, cumulative deformation, contact/tool consistency, and later rolling-NJF prediction errors.
+Rollout analysis is available through:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_trajectories.py tissue_dataset_v0/outputs/sofa_njf_demo
+```
+
+The rollout analyzer reads `trajectories/traj_*` and reports trajectory length, action step size, per-step response norms, cumulative deformation, fixed-node drift, tool-pose/action consistency, contact activity, contact-distance range, contact-point drift, and placeholder fields for future rolling-NJF prediction metrics. On the current non-smoke demo, `traj_000001` passes with `T=10`, `ready=True`, final max deformation `2.592 mm`, max per-step node response `1.727 mm`, max tool step error `0.000002 mm`, contact active `10/10`, and fixed-node drift `0.000000 mm`.
+
+Next analysis gap: add model-agnostic training/evaluation loaders that can consume Mode A samples and Mode C trajectories without requiring SOFA runtime.

@@ -354,6 +354,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Non-smoke demo config added for K=24 and T=10.
 * [x] Response basis analysis script added and sanity-checked on smoke output.
 * [x] Non-smoke demo dataset generated, validated, and analyzed.
+* [x] Rollout trajectory analysis script added and validated on smoke and non-smoke outputs.
 
 ## Notes
 
@@ -388,7 +389,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: add rollout analysis for `T>=10` trajectories, starting with stepwise response norms, cumulative deformation, contact-point/tool-pose consistency over time, and a placeholder interface for future rolling NJF prediction metrics.
+Next step: add a first training/evaluation-facing loader or metric harness that can consume Mode A local samples and Mode C trajectories without depending on SOFA runtime. Keep it model-agnostic until the NJF architecture is chosen.
 
 
 ## Demo Analysis Notes
@@ -433,3 +434,12 @@ leave_one_action_out_mean=0.018086
 leave_one_action_out_max=0.034408
 cumulative_explained_top=[0.7720297196504429, 0.977187054379935, 0.9997504921454429, 0.9999834543594373, 0.9999896814547918]
 ```
+
+Rollout trajectory analysis script:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_trajectories.py tissue_dataset_v0/outputs/sofa_njf_demo
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_trajectories.py tissue_dataset_v0/outputs/sofa_njf_smoke
+```
+
+The script reads `trajectories/traj_*` only; it does not rerun SOFA. It reports trajectory length, action step size, per-step response norms, cumulative deformation, fixed-node drift, tool-pose/action consistency, contact activity, contact-distance range, contact-point drift, and placeholder fields for future rolling-NJF prediction metrics. Demo output passed with `T=10`, `ready=True`, final max deformation `2.592 mm`, max per-step node response `1.727 mm`, max tool step error `0.000002 mm`, contact active `10/10`, and fixed-node drift `0.000000 mm`. Smoke output passed with a warning because `T=3` is shorter than the useful rollout threshold `T>=10`.
