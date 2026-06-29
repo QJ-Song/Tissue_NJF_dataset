@@ -555,3 +555,5 @@ Interpretation cases:
 - Group-local low rank plus cross-group similarity: shared low-dimensional response structure.
 - Group-local low rank but poor cross-group reconstruction: condition-dependent local basis; this supports NJF.
 - No group-local low rank: investigate action size, contact stability, solver noise, nonlinear mixing, time-step mixing, correspondence, material, or boundary control.
+
+Result-table plan: `docs/EXPERIMENT_DESIGN.md` now defines the required tables for per-group low-rank summary, pairwise basis similarity matrices, metadata-grouped comparisons, material scale-vs-pattern analysis, linearity/superposition, and shared-basis decisions. Stage 1 implementation should use that document as the output contract for `analyze_basis_across_groups.py`.

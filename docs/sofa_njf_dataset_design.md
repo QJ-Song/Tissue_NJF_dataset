@@ -308,3 +308,5 @@ Stage 4: shared-basis generalization. Learn a shared basis from train groups and
 Interpretation should distinguish three cases: group-local low rank and cross-group similarity implies a shared low-dimensional response structure; group-local low rank but poor cross-group reconstruction implies condition-dependent local basis and supports NJF; no group-local low rank suggests action/contact/solver/data issues such as too-large actions, unstable contact, nonlinear mixing, or inconsistent correspondences.
 
 Next analysis gap: implement Stage 1 cross-group response-basis analysis before expanding the dataset or training NJF.
+
+Detailed variable controls, required data fields, expected CSV/JSON/Markdown outputs, and interpretation tables for these experiments are maintained in `docs/EXPERIMENT_DESIGN.md` under `NJF Response Basis Validation Plan`.
