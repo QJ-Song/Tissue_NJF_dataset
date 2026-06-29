@@ -265,3 +265,17 @@ analysis/action_linearity/
 ```
 
 The first validated run on `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` found poor magnitude scale-linearity but acceptable tangent superposition. This answers that the current `0.05/0.1/0.2 mm` grouped samples should not be treated as strict local-Jacobian magnitude supervision until action/contact parameterization is checked with smaller increments.
+
+## Minimum Outputs For `diagnose_probe_depth.py`
+
+Probe-depth diagnosis writes:
+
+```text
+analysis/probe_depth/
+  summary.json
+  probe_depth_samples.csv
+  probe_depth_by_requested_depth.csv
+  decision_summary.md
+```
+
+The first diagnostic run showed that the original basis batch used `contactDistance=2 mm` with a nearest point-collision vertex offset around `2.58 mm`, much larger than the requested depths. A geometry-aware micro probe with contact point `[0.00273, 0.0]`, `contact_distance_mm=0.0`, and `0.002/0.005/0.01 mm` magnitudes passed the current linearity and superposition checks. For the current point-collision setup, strict local-Jacobian supervision should use this micro range or a similarly validated range.

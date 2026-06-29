@@ -361,6 +361,33 @@ superposition_max_relative_error=0.156394
 
 Interpretation: current grouped data supports tangent-direction superposition around the normal baseline reasonably well, but does not support magnitude scale-linearity. The response direction is often highly aligned across magnitudes, but response norms do not scale with requested depth: `0.05 mm` already produces nearly the same deformation norm as `0.1` and `0.2 mm` in many cases. Treat the current magnitude sweep as unsuitable for strict local-Jacobian magnitude supervision. Do not expand to larger magnitudes yet; first verify action depth/contact parameterization and then generate a smaller incremental probe such as `0.01`, `0.02`, and `0.05 mm`.
 
-Next analysis gap: diagnose whether the nonlinearity comes from action-depth semantics, initial contact state, contact saturation, settling procedure, or the current position-controlled probe setup; then regenerate a smaller Stage 2 probe if needed.
+Probe-depth diagnosis and smaller increment probes are implemented:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/diagnose_probe_depth.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_linearity_probe.yaml --overwrite
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/generate_njf_dataset.py --config tissue_dataset_v0/configs/sofa_njf_linearity_micro_probe.yaml --overwrite
+```
+
+The original `sofa_njf_basis_batch_valid` diagnosis found:
+
+```text
+contact_distance_mean=2.000000 mm
+nearest_xy_offset_mean=2.576666 mm
+final_gap_mean=1.998592 mm
+max_penetration_mean=0.000000 mm
+diagnosis=contact_distance_larger_than_depth
+```
+
+This means the old `0.05/0.1/0.2 mm` small-action data did not create true geometric penetration. It mostly tested a proximity/contact-distance constraint with a sparse point-collision vertex offset. The requested action depth was recorded in the tool pose, but contact parameterization made the physical response unsuitable for strict local-Jacobian magnitude supervision.
+
+Two smaller probes were generated:
+
+1. `sofa_njf_linearity_probe.yaml`: aligned contact point `[0.00273, 0.0]`, `contact_distance_mm=0.0`, magnitudes `0.01/0.02/0.05 mm`. Depth parameterization became geometrically plausible, but full-field scale linearity still failed: mean relative scale error `0.510210`.
+2. `sofa_njf_linearity_micro_probe.yaml`: same contact setup, magnitudes `0.002/0.005/0.01 mm`. This passed the current local checks: mean relative scale error `0.000017`, p90 `0.000033`, tangent-superposition mean `0.018048`, and response-basis top2 explained variance `0.989410`.
+
+Interpretation: the SOFA backend does apply `action[5]` to tool motion correctly. The usable strict-local action range for the current point-collision probe is much smaller than initially assumed; conservatively use `<= 0.01 mm` for local Jacobian supervision until a denser/surface collision model is introduced. The old `0.05/0.1/0.2 mm` basis batch remains useful for qualitative low-rank diagnostics, but it should not be used as strict magnitude-linear NJF training data.
+
+Next analysis gap: update future factorial dataset configs to use geometry-aware contact points and a local magnitude range no larger than `0.01 mm`, or move to surface collision before increasing the action magnitude.
 
 Detailed variable controls, required data fields, expected CSV/JSON/Markdown outputs, and interpretation tables for these experiments are maintained in `docs/EXPERIMENT_DESIGN.md` under `NJF Response Basis Validation Plan`.

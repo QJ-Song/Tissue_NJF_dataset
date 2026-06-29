@@ -359,6 +359,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] SOFA-free NJF dataset reader and smoke/metric CLI implemented and validated.
 * [x] Stage 1 cross-group response-basis analysis implemented and run on `sofa_njf_basis_batch_valid`.
 * [x] Stage 2 action-magnitude linearity and tangent-superposition analysis implemented and run on `sofa_njf_basis_batch_valid`.
+* [x] Probe-depth diagnosis implemented; smaller `0.01/0.02/0.05 mm` and micro `0.002/0.005/0.01 mm` probes generated and analyzed.
 
 ## Notes
 
@@ -657,3 +658,56 @@ superposition_max_relative_error=0.156394
 Question answered: current grouped data does not satisfy magnitude scale-linearity, so it should not be used as strict local-Jacobian magnitude supervision as-is. Tangent-direction residuals around the normal baseline approximately satisfy superposition, which supports keeping the directional action design, but action depth/contact semantics need diagnosis.
 
 Next task: inspect why `0.05 mm` already produces nearly the same response norm as `0.1` and `0.2 mm`. Check action depth semantics, initial contact state, contact saturation, settling procedure, and position-controlled probe setup. Then generate a smaller incremental Stage 2 probe such as `0.01`, `0.02`, and `0.05 mm` before expanding to larger magnitudes.
+
+## Probe Depth Diagnosis And Micro Probe Result
+
+Implemented command:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/diagnose_probe_depth.py DATASET_ROOT
+```
+
+New configs:
+
+```text
+tissue_dataset_v0/configs/sofa_njf_linearity_probe.yaml
+tissue_dataset_v0/configs/sofa_njf_linearity_micro_probe.yaml
+```
+
+Generated ignored outputs:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_linearity_probe/
+tissue_dataset_v0/outputs/sofa_njf_linearity_micro_probe/
+```
+
+Original basis batch diagnosis:
+
+```text
+contact_distance_mean=2.000000 mm
+nearest_xy_offset_mean=2.576666 mm
+final_gap_mean=1.998592 mm
+max_penetration_mean=0.000000 mm
+diagnosis=contact_distance_larger_than_depth
+```
+
+Question answered: the original `0.05/0.1/0.2 mm` poor magnitude scaling was not because `action[5]` failed to drive the tool. The requested depth is reflected in tool motion, but the contact model used a large `contactDistance` and sparse point-collision vertices, so small actions did not produce true local penetration.
+
+Smaller aligned-contact probe (`0.01/0.02/0.05 mm`, contact point `[0.00273, 0.0]`, `contact_distance_mm=0.0`) made depth parameterization geometrically plausible, but full-field linearity still failed:
+
+```text
+linearity_mean_relative_scale_error=0.510210
+superposition_mean_relative_error=0.081474
+```
+
+Micro probe (`0.002/0.005/0.01 mm`) passed the current local checks:
+
+```text
+linearity_mean_relative_scale_error=0.000017
+linearity_p90_relative_scale_error=0.000033
+superposition_mean_relative_error=0.018048
+response_basis_top2_explained=0.989410
+validator_errors=0
+```
+
+Decision: for the current point-collision probe setup, use `<= 0.01 mm` as the conservative strict-local NJF action range. The old `0.05/0.1/0.2 mm` data can support qualitative low-rank diagnostics, but it should not be used as strict local-Jacobian magnitude supervision. Future broader datasets must either use geometry-aware contact points with this micro range or switch to surface collision before increasing action magnitudes.

@@ -1,0 +1,89 @@
+dataset:
+  output_root: ../outputs/sofa_njf_linearity_probe
+  random_seed: 42
+  sample_id_start: 1
+  basis_sample_id_start: 1
+  modes:
+    local_perturbation: false
+    response_basis_group: true
+    rollout_trajectory: false
+
+backend:
+  type: sofa_fem
+  extra:
+    sofa_tissue_shape: liver_like
+    sofa_interaction_model: probe_contact
+    sofa_record_tool_motion: true
+    sofa_record_contact_summary: true
+    sofa_record_boundary_solver: true
+
+tissue:
+  geometry_type: liver_like
+  size: [0.12, 0.085, 0.018]
+  grid: [9, 7, 4]
+  fixed_border_ratio: 0.12
+
+material:
+  young_modulus: 3000.0
+  poisson_ratio: 0.45
+  density: 1000.0
+  damping: 0.5
+  boundary_condition: bottom_fixed
+
+tool:
+  geometry: sphere
+  radius_mm: 10.0
+  clearance_mm: 0.0
+  control_mode: position
+
+contact:
+  mode: frictionless_constraint
+  contact_point_mode: fixed_material_point
+  contact_distance_mm: 0.0
+  alarm_distance_mm: 1.0
+
+solver:
+  ode_solver: EulerImplicitSolver
+  constraint_solver: GenericConstraintSolver
+  linear_solver: CGLinearSolver
+  dt: 0.005
+  settling_steps: 80
+  constraint_solver_tolerance: 1.0e-6
+  constraint_solver_max_iterations: 100
+  linear_solver_tolerance: 1.0e-9
+  linear_solver_threshold: 1.0e-9
+
+sampling:
+  contact_point_xy: [0.00273, 0.0]
+  action_direction: [0.0, 0.0, -1.0]
+  local_delta_magnitudes_mm: [0.01, 0.02, 0.05]
+  response_basis:
+    group_id: group_linearity_probe_000001
+    contact_points_xy:
+      - [0.00273, 0.0]
+    material_grid:
+      young_modulus: [3000.0]
+      poisson_ratio: [0.45]
+    action_directions:
+      - [0.0, 0.0, -1.0]
+      - [0.0872, 0.0, -0.9962]
+      - [-0.0872, 0.0, -0.9962]
+      - [0.0, 0.0872, -0.9962]
+      - [0.0, -0.0872, -0.9962]
+      - [0.0617, 0.0617, -0.9962]
+      - [-0.0617, 0.0617, -0.9962]
+      - [0.0617, -0.0617, -0.9962]
+    local_delta_magnitudes_mm: [0.01, 0.02, 0.05]
+
+logging:
+  enabled: true
+  log_dir_name: logs
+  log_every_n: 20
+  save_vertices: true
+  save_tool_pose: true
+  save_events: true
+  save_request: true
+
+artifacts:
+  include: null
+  exclude: []
