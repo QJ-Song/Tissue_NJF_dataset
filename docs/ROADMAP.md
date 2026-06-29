@@ -136,7 +136,7 @@ Acceptance criteria:
 
 - NJF can be trained and compared with deformation prediction baseline.
 
-Current planning update: before model work, finish SOFA NJF dataset v1. The lightweight NJF orchestration layer, Mode A local perturbation generation, Mode B response basis groups, Mode C rollout trajectories, Mode A/B/C dataset validator, non-smoke K=24/T=10 demo, response-basis analysis script, rollout trajectory analysis script, Response Basis Batch v1, and SOFA-free NJF dataset reader are implemented and validated. The next priority is staged response-basis validation: cross-group basis similarity on existing groups, action linearity/superposition, a factorial basis dataset, then shared-basis generalization. See `tasks/0013-controlled-sofa-contact-dataset-v1.md` and `docs/sofa_njf_dataset_design.md`.
+Current planning update: before model work, finish SOFA NJF dataset v1. The lightweight NJF orchestration layer, Mode A local perturbation generation, Mode B response basis groups, Mode C rollout trajectories, Mode A/B/C dataset validator, non-smoke K=24/T=10 demo, response-basis analysis script, rollout trajectory analysis script, Response Basis Batch v1, SOFA-free NJF dataset reader, and Stage 1 cross-group response-basis analysis are implemented and validated. The next priority is Stage 2 action-magnitude linearity/superposition, followed by a clearer factorial basis dataset and shared-basis generalization. See `tasks/0013-controlled-sofa-contact-dataset-v1.md` and `docs/sofa_njf_dataset_design.md`.
 
 ## Stage 8: Evaluation and Paper Figures
 

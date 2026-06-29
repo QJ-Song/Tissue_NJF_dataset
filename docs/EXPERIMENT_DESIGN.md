@@ -246,3 +246,5 @@ analysis/basis_across_groups/
 ```
 
 Heatmap PNGs are useful but optional in the first version. The report must explicitly state that all-group global PCA is not the main conclusion.
+
+Stage 1 implementation status: `tissue_dataset_v0/scripts/analyze_basis_across_groups.py` now writes these required CSV/JSON/Markdown artifacts, except heatmap PNGs. The first validated run used `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` and wrote outputs to `analysis/basis_across_groups/` under that ignored dataset root.

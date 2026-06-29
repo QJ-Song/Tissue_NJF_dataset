@@ -307,6 +307,33 @@ Stage 4: shared-basis generalization. Learn a shared basis from train groups and
 
 Interpretation should distinguish three cases: group-local low rank and cross-group similarity implies a shared low-dimensional response structure; group-local low rank but poor cross-group reconstruction implies condition-dependent local basis and supports NJF; no group-local low rank suggests action/contact/solver/data issues such as too-large actions, unstable contact, nonlinear mixing, or inconsistent correspondences.
 
-Next analysis gap: implement Stage 1 cross-group response-basis analysis before expanding the dataset or training NJF.
+Stage 1 cross-group response-basis analysis is implemented:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_basis_across_groups.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+```
+
+The script writes generated analysis artifacts under:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/analysis/basis_across_groups/
+```
+
+Current Stage 1 result on `sofa_njf_basis_batch_valid`:
+
+```text
+groups=6
+basis_rank=2
+effective_rank_mean=1.903
+top2_cumulative_explained_mean=0.963488
+offdiag_cross_reconstruction_error_mean=0.728994
+same_contact_diff_material: projection_similarity_mean=0.928783, cross_reconstruction_error_mean=0.267751
+same_material_diff_contact: projection_similarity_mean=0.285415, cross_reconstruction_error_mean=0.840230
+diff_contact_diff_material: projection_similarity_mean=0.262767, cross_reconstruction_error_mean=0.848380
+```
+
+Interpretation: per-group local response remains low-dimensional, but basis sharing across contact points is weak in the current dataset. Same-contact/different-material subspaces are much more aligned than different-contact subspaces, but the material result is not pure scale-only behavior: normalized material reconstruction errors remain non-trivial, and response norms do not scale strongly with Young's modulus under the current position-controlled contact setup. Treat this as a first diagnostic result, not a final material conclusion.
+
+Next analysis gap: implement Stage 2 action-magnitude linearity and direction-superposition analysis before expanding the dataset or training NJF.
 
 Detailed variable controls, required data fields, expected CSV/JSON/Markdown outputs, and interpretation tables for these experiments are maintained in `docs/EXPERIMENT_DESIGN.md` under `NJF Response Basis Validation Plan`.

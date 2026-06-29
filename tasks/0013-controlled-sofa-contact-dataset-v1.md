@@ -357,6 +357,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Rollout trajectory analysis script added and validated on smoke and non-smoke outputs.
 * [x] Response Basis Batch v1 planner/config/analysis implemented and validated.
 * [x] SOFA-free NJF dataset reader and smoke/metric CLI implemented and validated.
+* [x] Stage 1 cross-group response-basis analysis implemented and run on `sofa_njf_basis_batch_valid`.
 
 ## Notes
 
@@ -557,3 +558,50 @@ Interpretation cases:
 - No group-local low rank: investigate action size, contact stability, solver noise, nonlinear mixing, time-step mixing, correspondence, material, or boundary control.
 
 Result-table plan: `docs/EXPERIMENT_DESIGN.md` now defines the required tables for per-group low-rank summary, pairwise basis similarity matrices, metadata-grouped comparisons, material scale-vs-pattern analysis, linearity/superposition, and shared-basis decisions. Stage 1 implementation should use that document as the output contract for `analyze_basis_across_groups.py`.
+
+## Stage 1 Cross-Group Basis Analysis Result
+
+Implemented command:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_basis_across_groups.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+```
+
+Generated outputs are under the ignored dataset output tree:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/analysis/basis_across_groups/
+```
+
+The experiment fixes group-local geometry/state/boundary/contact/material/tool/solver and varies only action direction and small action magnitude inside each group. Across groups, the current batch varies contact point and Young's modulus while keeping boundary and Poisson ratio fixed.
+
+Collected data:
+
+- `responses.npy` as `[K, N, 3]` response fields per group;
+- `actions.npy` for direction/magnitude metadata;
+- `group_metadata.json` for `contact_point_id`, `material_id`, `boundary_id`, Young's modulus, Poisson ratio, and contact point world coordinates.
+
+Main output tables:
+
+- `per_group_metrics.csv`: effective rank, top-k explained variance, leave-one-action-out error, response norms;
+- `projection_similarity.csv`: pairwise basis overlap;
+- `principal_angles_mean.csv` and `principal_angles_max.csv`: pairwise subspace angles;
+- `cross_reconstruction_error.csv`: how well basis from group `i` reconstructs responses from group `j`;
+- `metadata_grouped_summary.csv`: same-contact/different-material and same-material/different-contact summaries;
+- `material_scale_pattern.csv`: raw-vs-normalized material comparison;
+- `decision_summary.md` and `summary.json`: machine-readable and human-readable conclusions.
+
+Current result on six groups:
+
+```text
+effective_rank_mean=1.903
+top2_cumulative_explained_mean=0.963488
+offdiag_cross_reconstruction_error_mean=0.728994
+same_contact_diff_material: projection_similarity_mean=0.928783, cross_reconstruction_error_mean=0.267751
+same_material_diff_contact: projection_similarity_mean=0.285415, cross_reconstruction_error_mean=0.840230
+diff_contact_diff_material: projection_similarity_mean=0.262767, cross_reconstruction_error_mean=0.848380
+```
+
+Question answered: group-local responses are low-dimensional, but bases do not transfer well across contact points in the current dataset. Same-contact/different-material basis subspaces are much more aligned than different-contact subspaces, but normalized material reconstruction errors remain non-trivial; do not claim material is only a scalar stiffness factor yet.
+
+Next task: Stage 2 action-magnitude linearity and direction-superposition analysis. This should answer what small-action range is valid for local NJF supervision and whether directional responses approximately add.
