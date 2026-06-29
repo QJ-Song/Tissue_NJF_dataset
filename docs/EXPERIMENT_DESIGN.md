@@ -248,3 +248,20 @@ analysis/basis_across_groups/
 Heatmap PNGs are useful but optional in the first version. The report must explicitly state that all-group global PCA is not the main conclusion.
 
 Stage 1 implementation status: `tissue_dataset_v0/scripts/analyze_basis_across_groups.py` now writes these required CSV/JSON/Markdown artifacts, except heatmap PNGs. The first validated run used `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` and wrote outputs to `analysis/basis_across_groups/` under that ignored dataset root.
+
+## Minimum Outputs For `analyze_action_linearity.py`
+
+Stage 2 writes:
+
+```text
+analysis/action_linearity/
+  summary.json
+  linearity_by_direction.csv
+  linearity_summary_by_magnitude.csv
+  linearity_summary_by_group.csv
+  superposition_tests.csv
+  superposition_summary_by_group.csv
+  decision_summary.md
+```
+
+The first validated run on `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` found poor magnitude scale-linearity but acceptable tangent superposition. This answers that the current `0.05/0.1/0.2 mm` grouped samples should not be treated as strict local-Jacobian magnitude supervision until action/contact parameterization is checked with smaller increments.

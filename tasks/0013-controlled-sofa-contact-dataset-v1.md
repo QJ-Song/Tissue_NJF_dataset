@@ -358,6 +358,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Response Basis Batch v1 planner/config/analysis implemented and validated.
 * [x] SOFA-free NJF dataset reader and smoke/metric CLI implemented and validated.
 * [x] Stage 1 cross-group response-basis analysis implemented and run on `sofa_njf_basis_batch_valid`.
+* [x] Stage 2 action-magnitude linearity and tangent-superposition analysis implemented and run on `sofa_njf_basis_batch_valid`.
 
 ## Notes
 
@@ -605,3 +606,54 @@ diff_contact_diff_material: projection_similarity_mean=0.262767, cross_reconstru
 Question answered: group-local responses are low-dimensional, but bases do not transfer well across contact points in the current dataset. Same-contact/different-material basis subspaces are much more aligned than different-contact subspaces, but normalized material reconstruction errors remain non-trivial; do not claim material is only a scalar stiffness factor yet.
 
 Next task: Stage 2 action-magnitude linearity and direction-superposition analysis. This should answer what small-action range is valid for local NJF supervision and whether directional responses approximately add.
+
+## Stage 2 Action Linearity And Superposition Result
+
+Implemented command:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_action_linearity.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+```
+
+Generated outputs are under the ignored dataset output tree:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/analysis/action_linearity/
+```
+
+The experiment uses existing Mode B groups. Within each group, geometry/state/material/boundary/contact/tool/solver remain fixed. The analysis varies:
+
+- action magnitude for scale-linearity checks;
+- matched x/y/diagonal tangent direction residuals around the normal baseline for superposition checks.
+
+Collected data:
+
+- `actions.npy` for direction and magnitude;
+- `responses.npy` for `[K, N, 3]` response fields;
+- `group_metadata.json` for contact/material IDs and material values.
+
+Main output tables:
+
+- `linearity_by_direction.csv`: per group/direction/magnitude scale error relative to the smallest magnitude;
+- `linearity_summary_by_magnitude.csv`: aggregate scale error by magnitude;
+- `linearity_summary_by_group.csv`: aggregate scale error by group;
+- `superposition_tests.csv`: tangent residual superposition tests around normal baseline;
+- `superposition_summary_by_group.csv`: aggregate superposition error by group;
+- `summary.json` and `decision_summary.md`: machine-readable and human-readable conclusions.
+
+Current result:
+
+```text
+linearity_tests=96
+linearity_mean_relative_scale_error=1.785657
+linearity_p90_relative_scale_error=2.689482
+linearity_by_magnitude: 0.1 mm mean=0.935031, 0.2 mm mean=2.636283
+superposition_tests=54
+superposition_mean_relative_error=0.067291
+superposition_p90_relative_error=0.116776
+superposition_max_relative_error=0.156394
+```
+
+Question answered: current grouped data does not satisfy magnitude scale-linearity, so it should not be used as strict local-Jacobian magnitude supervision as-is. Tangent-direction residuals around the normal baseline approximately satisfy superposition, which supports keeping the directional action design, but action depth/contact semantics need diagnosis.
+
+Next task: inspect why `0.05 mm` already produces nearly the same response norm as `0.1` and `0.2 mm`. Check action depth semantics, initial contact state, contact saturation, settling procedure, and position-controlled probe setup. Then generate a smaller incremental Stage 2 probe such as `0.01`, `0.02`, and `0.05 mm` before expanding to larger magnitudes.

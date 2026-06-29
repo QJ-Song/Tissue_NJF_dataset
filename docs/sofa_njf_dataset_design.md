@@ -334,6 +334,33 @@ diff_contact_diff_material: projection_similarity_mean=0.262767, cross_reconstru
 
 Interpretation: per-group local response remains low-dimensional, but basis sharing across contact points is weak in the current dataset. Same-contact/different-material subspaces are much more aligned than different-contact subspaces, but the material result is not pure scale-only behavior: normalized material reconstruction errors remain non-trivial, and response norms do not scale strongly with Young's modulus under the current position-controlled contact setup. Treat this as a first diagnostic result, not a final material conclusion.
 
-Next analysis gap: implement Stage 2 action-magnitude linearity and direction-superposition analysis before expanding the dataset or training NJF.
+Stage 2 action-magnitude linearity and tangent-direction superposition analysis is implemented:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_action_linearity.py tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid
+```
+
+The script writes generated analysis artifacts under:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid/analysis/action_linearity/
+```
+
+Current Stage 2 result on `sofa_njf_basis_batch_valid`:
+
+```text
+linearity_tests=96
+linearity_mean_relative_scale_error=1.785657
+linearity_p90_relative_scale_error=2.689482
+linearity_by_magnitude: 0.1 mm mean=0.935031, 0.2 mm mean=2.636283
+superposition_tests=54
+superposition_mean_relative_error=0.067291
+superposition_p90_relative_error=0.116776
+superposition_max_relative_error=0.156394
+```
+
+Interpretation: current grouped data supports tangent-direction superposition around the normal baseline reasonably well, but does not support magnitude scale-linearity. The response direction is often highly aligned across magnitudes, but response norms do not scale with requested depth: `0.05 mm` already produces nearly the same deformation norm as `0.1` and `0.2 mm` in many cases. Treat the current magnitude sweep as unsuitable for strict local-Jacobian magnitude supervision. Do not expand to larger magnitudes yet; first verify action depth/contact parameterization and then generate a smaller incremental probe such as `0.01`, `0.02`, and `0.05 mm`.
+
+Next analysis gap: diagnose whether the nonlinearity comes from action-depth semantics, initial contact state, contact saturation, settling procedure, or the current position-controlled probe setup; then regenerate a smaller Stage 2 probe if needed.
 
 Detailed variable controls, required data fields, expected CSV/JSON/Markdown outputs, and interpretation tables for these experiments are maintained in `docs/EXPERIMENT_DESIGN.md` under `NJF Response Basis Validation Plan`.
