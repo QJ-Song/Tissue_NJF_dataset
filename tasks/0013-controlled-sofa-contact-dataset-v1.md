@@ -391,7 +391,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/check_boundary_solver.py ti
 scripts/run_sofa_python.sh -c "import numpy as np, pathlib; p=pathlib.Path('tissue_dataset_v0/outputs/sofa_njf_smoke/trajectories/traj_000001'); print({'states': np.load(p/'states.npy').shape, 'actions': np.load(p/'actions.npy').shape, 'responses': np.load(p/'responses.npy').shape, 'tool_poses': np.load(p/'tool_poses.npy').shape, 'contact_points': np.load(p/'contact_points.npy').shape})"
 ```
 
-Next step: add split-aware model-specific adapters or a minimal baseline metric that consumes `NJFDataset` records. Keep SOFA/Isaac Sim out of model code.
+Next step: implement Stage 1 cross-group response-basis analysis on `sofa_njf_basis_batch_valid` before expanding the dataset or training NJF. Keep SOFA/Isaac Sim out of analysis and model code.
 
 
 ## Demo Analysis Notes
@@ -511,3 +511,47 @@ sofa_njf_demo: samples=28, groups=1, trajectories=1
 sofa_njf_basis_batch_valid: samples=144, groups=6, trajectories=0
 SOFA import check: sofa_loaded=False, sofa_runtime_loaded=False
 ```
+
+## Response Basis Validation Roadmap
+
+Do response-basis validation in four stages. Do not concatenate all groups and run one global PCA as the primary conclusion; that mixes contact/material/boundary effects and is hard to interpret.
+
+Stage 1: cross-group basis analysis on current data.
+
+- Input: `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid`.
+- Implement: `tissue_dataset_v0/scripts/analyze_basis_across_groups.py`.
+- Per group: load `responses.npy`, `actions.npy`, and `group_metadata.json`; flatten responses to `3N`; run SVD/PCA; compute effective rank, top-1/top-2/top-3 explained variance, and reconstruction error.
+- Across groups: compute pairwise principal angles, projection similarity `||U_i^T U_j||_F^2 / r`, and cross-group reconstruction error `||R_j - U_i U_i^T R_j||_F / ||R_j||_F`.
+- Metadata summaries: same material/different contact, same contact/different material, different material/different contact.
+- Outputs: `summary.json`, `per_group_metrics.csv`, `principal_angles.csv`, `projection_similarity.csv`, `cross_reconstruction_error.csv`, and `report.md`. Heatmap PNGs are useful but optional for the first version.
+- Acceptance: handles all 6 groups, emits 6x6 matrices, distinguishes material/contact comparison classes, and clearly states that global mixed PCA is not the main conclusion.
+
+Stage 2: action magnitude linearity and superposition.
+
+- Add a small probe config such as `sofa_njf_linearity_probe.yaml`.
+- Fixed variables: tissue, material, boundary, contact point, solver, tool.
+- Vary magnitude along fixed directions: e.g. `0.05, 0.1, 0.2, 0.5, 1.0` mm.
+- Add combination actions such as `dx`, `dy`, and `dx + dy`.
+- Analyze scale consistency `delta_X(alpha u) ~= alpha delta_X(u)` and superposition `delta_X(dx + dy) ~= delta_X(dx) + delta_X(dy)`.
+- Acceptance: recommends an action magnitude range where local Jacobian assumptions are reasonable and explains when rollout is needed.
+
+Stage 3: factorial response-basis dataset.
+
+- Generate only after Stage 1/2 define safe contact and action ranges.
+- Conservative target: `5 contact points x 3 materials x 1 boundary x 8 directions x 4 magnitudes = 15 groups, 480 samples`.
+- Boundary-condition target: `5 x 3 x 2 x 8 x 4 = 30 groups, 960 samples`.
+- Every broader contact set must pass a candidate contact smoke test or use a surface-aware sampler before full generation.
+- Acceptance: validator passes, each group has `K >= 32`, metadata tracks factors, and failed contact candidates are not used for conclusions.
+
+Stage 4: shared-basis generalization.
+
+- Learn shared basis from train groups and reconstruct held-out groups.
+- Splits: held-out contact, held-out material, held-out contact+material.
+- Compare group-local basis, shared basis, nearest-group basis, and zero-response baseline.
+- Acceptance: answers whether a shared global basis is enough or whether NJF must predict condition-dependent local Jacobian/basis from `X, p, theta, B`.
+
+Interpretation cases:
+
+- Group-local low rank plus cross-group similarity: shared low-dimensional response structure.
+- Group-local low rank but poor cross-group reconstruction: condition-dependent local basis; this supports NJF.
+- No group-local low rank: investigate action size, contact stability, solver noise, nonlinear mixing, time-step mixing, correspondence, material, or boundary control.

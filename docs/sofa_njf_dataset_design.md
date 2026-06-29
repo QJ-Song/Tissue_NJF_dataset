@@ -293,4 +293,18 @@ validate_training_view()      # shape and delta consistency checks
 
 It returns numpy arrays and metadata dictionaries only. An import check on `sofa_njf_demo` reported `sofa_loaded=False` and `sofa_runtime_loaded=False`, so future training/evaluation code can consume saved data without importing SOFA. The command currently acts as a smoke/metric harness; model-specific tensors, normalization, batching, and split-aware PyTorch datasets remain future work.
 
-Next analysis gap: add model-specific training/evaluation adapters that can consume Mode A samples and Mode C trajectories without requiring SOFA runtime.
+## Response Basis Validation Roadmap
+
+The response-basis experiments should be staged rather than starting with one global PCA over all responses. A `group` means fixed tissue state, geometry, material, boundary condition, contact point, tool/contact model, solver, time step, damping, action duration, and small action magnitude range; only action direction and action magnitude vary inside the group.
+
+Stage 1: cross-group basis analysis on existing data. Use `tissue_dataset_v0/outputs/sofa_njf_basis_batch_valid` first. Implement `tissue_dataset_v0/scripts/analyze_basis_across_groups.py`. For each group, run independent SVD/PCA and report effective rank, top-k explained variance, and reconstruction error. Across groups, compute pairwise principal angles, projection similarity `||U_i^T U_j||_F^2 / r`, and cross-group reconstruction error `||R_j - U_i U_i^T R_j||_F / ||R_j||_F`. Summarize same-material/different-contact, same-contact/different-material, and different-contact/different-material comparisons. Do not use a single PCA over all groups as the main conclusion.
+
+Stage 2: action magnitude linearity and superposition. Add a small config such as `sofa_njf_linearity_probe.yaml` with fixed tissue/material/boundary/contact and magnitude sweep such as `0.05, 0.1, 0.2, 0.5, 1.0` mm. Add combined-direction actions such as `dx`, `dy`, and `dx + dy`. Analyze scale consistency `delta_X(alpha u) ~= alpha delta_X(u)` and superposition `delta_X(dx + dy) ~= delta_X(dx) + delta_X(dy)` to choose a justified local-action range for NJF.
+
+Stage 3: factorial basis dataset. After Stage 1/2 identify safe contact and action ranges, generate a clearer factorial dataset. A conservative next target is `5 contact points x 3 materials x 1 boundary x 8 directions x 4 magnitudes = 15 groups, 480 samples`. A boundary-condition version would be `5 x 3 x 2 x 8 x 4 = 30 groups, 960 samples`. Every broader contact set needs a candidate contact smoke test or a surface-aware sampler before full generation.
+
+Stage 4: shared-basis generalization. Learn a shared basis from train groups and evaluate held-out groups. Use split types such as held-out contact, held-out material, and held-out contact+material. Compare group-local basis reconstruction, shared-basis reconstruction, nearest-group basis reconstruction, and zero-response baseline. This stage should answer whether a global/shared basis is enough or whether NJF must predict condition-dependent local Jacobians/bases from `X, p, theta, B`.
+
+Interpretation should distinguish three cases: group-local low rank and cross-group similarity implies a shared low-dimensional response structure; group-local low rank but poor cross-group reconstruction implies condition-dependent local basis and supports NJF; no group-local low rank suggests action/contact/solver/data issues such as too-large actions, unstable contact, nonlinear mixing, or inconsistent correspondences.
+
+Next analysis gap: implement Stage 1 cross-group response-basis analysis before expanding the dataset or training NJF.
