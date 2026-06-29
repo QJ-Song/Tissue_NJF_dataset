@@ -30,6 +30,9 @@ class SofaFemBackend:
         dofs = scene["dofs"]
         self._sofa_simulation().initRoot(root)
 
+        probe_reference_vertices = self._vertex_positions(dofs)
+        scene["probe_reference_vertices"] = probe_reference_vertices.copy()
+        self._run_probe_preload(scene, sofa_request, probe_reference_vertices)
         vertices_0 = self._vertex_positions(dofs)
         faces = self._build_surface_faces(sofa_request.geometry)
 
@@ -303,7 +306,8 @@ class SofaFemBackend:
         probe_dofs = scene.get("probe_dofs")
         if probe_dofs is None:
             return
-        start_position, end_position = self._tool_start_end_positions(request, vertices_0)
+        reference_vertices = scene.get("probe_reference_vertices", vertices_0)
+        start_position, end_position = self._tool_start_end_positions(request, np.asarray(reference_vertices, dtype=np.float64))
         position = start_position + (end_position - start_position) * float(progress)
         probe_dofs.position.value = [position.astype(float).tolist()]
 
@@ -321,7 +325,8 @@ class SofaFemBackend:
     def _tool_payload(self, scene: dict[str, Any], request: SampleRequest, vertices_0: np.ndarray) -> dict[str, Any] | None:
         if scene.get("interaction_model") != "probe_contact" or not bool(request.config.extra.get("sofa_record_tool_motion", False)):
             return None
-        start_position, end_position = self._tool_start_end_positions(request, vertices_0)
+        reference_vertices = scene.get("probe_reference_vertices", vertices_0)
+        start_position, end_position = self._tool_start_end_positions(request, np.asarray(reference_vertices, dtype=np.float64))
         radius = float(request.config.extra.get("sofa_probe_radius", 0.010))
         return {
             "tool_pose_0": self._pose_matrix(start_position),
@@ -340,17 +345,84 @@ class SofaFemBackend:
         cfg = request.config.extra
         action = np.asarray(request.action.vector, dtype=np.float64)
         depth = float(action[5]) if action.shape[0] >= 6 else 0.0025
-        radius = float(cfg.get("sofa_probe_radius", 0.010))
+        preload_depth = float(cfg.get("sofa_probe_preload_depth", 0.0))
         clearance = float(cfg.get("sofa_probe_clearance", 0.010))
         max_depth = float(cfg.get("sofa_probe_contact_max_depth", 0.0025))
-        depth = min(max(depth, 0.0), max_depth)
-        direction = self._action_direction(request)
+        incremental = bool(cfg.get("sofa_probe_incremental_after_preload", preload_depth > 0.0))
+        depth = max(depth, 0.0)
+        if incremental:
+            start_depth = min(max(preload_depth, 0.0), max_depth)
+            increment_depth = min(depth, max(max_depth - start_depth, 0.0))
+            preload_direction = self._preload_direction(request)
+            start_position = self._tool_position_for_depth(
+                request, vertices_0, start_depth, clearance=0.0, direction=preload_direction
+            )
+            end_position = start_position + self._action_direction(request) * increment_depth
+        else:
+            start_depth = 0.0
+            end_depth = min(depth, max_depth)
+            start_position = self._tool_position_for_depth(request, vertices_0, start_depth, clearance=clearance)
+            end_position = self._tool_position_for_depth(request, vertices_0, end_depth, clearance=0.0)
+        return start_position, end_position
+
+    def _tool_position_for_depth(
+        self,
+        request: SampleRequest,
+        vertices_0: np.ndarray,
+        depth: float,
+        *,
+        clearance: float,
+        direction: np.ndarray | None = None,
+    ) -> np.ndarray:
+        cfg = request.config.extra
+        radius = float(cfg.get("sofa_probe_radius", 0.010))
+        if direction is None:
+            direction = self._action_direction(request)
         contact = request.action.contact_point or (0.0, 0.0, float(vertices_0[:, 2].max()))
         top_z = float(vertices_0[:, 2].max())
         contact_anchor = np.asarray([float(contact[0]), float(contact[1]), top_z], dtype=np.float64)
-        start_position = contact_anchor - direction * (radius + clearance)
-        end_position = contact_anchor - direction * radius + direction * depth
-        return start_position, end_position
+        return contact_anchor - direction * (radius + max(clearance, 0.0)) + direction * max(depth, 0.0)
+
+    def _run_probe_preload(self, scene: dict[str, Any], request: SampleRequest, vertices_ref: np.ndarray) -> None:
+        if scene.get("interaction_model") != "probe_contact":
+            return
+        preload_depth = float(request.config.extra.get("sofa_probe_preload_depth", 0.0))
+        if preload_depth <= 0.0:
+            return
+        probe_dofs = scene.get("probe_dofs")
+        if probe_dofs is None:
+            return
+        max_depth = float(request.config.extra.get("sofa_probe_contact_max_depth", preload_depth))
+        preload_depth = min(preload_depth, max_depth)
+        preload_direction = self._preload_direction(request)
+        start_position = self._tool_position_for_depth(
+            request,
+            vertices_ref,
+            0.0,
+            clearance=float(request.config.extra.get("sofa_probe_clearance", 0.010)),
+            direction=preload_direction,
+        )
+        preload_position = self._tool_position_for_depth(
+            request, vertices_ref, preload_depth, clearance=0.0, direction=preload_direction
+        )
+        motion_steps = max(int(request.config.extra.get("sofa_probe_preload_motion_steps", 40)), 1)
+        settle_steps = max(int(request.config.extra.get("sofa_probe_preload_settle_steps", 80)), 0)
+        for step in range(motion_steps):
+            progress = (step + 1) / motion_steps
+            position = start_position + (preload_position - start_position) * progress
+            probe_dofs.position.value = [position.astype(float).tolist()]
+            self._sofa_simulation().animate(scene["root"], scene["root"].dt.value)
+        for _ in range(settle_steps):
+            probe_dofs.position.value = [preload_position.astype(float).tolist()]
+            self._sofa_simulation().animate(scene["root"], scene["root"].dt.value)
+
+    def _preload_direction(self, request: SampleRequest) -> np.ndarray:
+        value = request.config.extra.get("sofa_probe_preload_direction", [0.0, 0.0, -1.0])
+        direction = np.asarray(value, dtype=np.float64).reshape(3)
+        norm = float(np.linalg.norm(direction))
+        if norm <= 0.0:
+            return np.asarray([0.0, 0.0, -1.0], dtype=np.float64)
+        return direction / norm
 
     def _pose_matrix(self, position: np.ndarray) -> np.ndarray:
         pose = np.eye(4, dtype=np.float64)

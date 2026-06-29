@@ -388,6 +388,36 @@ Two smaller probes were generated:
 
 Interpretation: the SOFA backend does apply `action[5]` to tool motion correctly. The usable strict-local action range for the current point-collision probe is much smaller than initially assumed; conservatively use `<= 0.01 mm` for local Jacobian supervision until a denser/surface collision model is introduced. The old `0.05/0.1/0.2 mm` basis batch remains useful for qualitative low-rank diagnostics, but it should not be used as strict magnitude-linear NJF training data.
 
-Next analysis gap: update future factorial dataset configs to use geometry-aware contact points and a local magnitude range no larger than `0.01 mm`, or move to surface collision before increasing the action magnitude.
+Additional preload/incremental-action diagnostics were run to test whether the strict-local range can be enlarged without surface collision. `SofaFemBackend` now supports optional preloaded contact via:
+
+```text
+sofa_probe_preload_depth
+sofa_probe_incremental_after_preload
+sofa_probe_preload_motion_steps
+sofa_probe_preload_settle_steps
+sofa_probe_preload_direction
+```
+
+When enabled, the backend settles the tissue under a normal preload first, records that settled state as `X_t`, and then interprets `action[5]` as an incremental tool motion from the preloaded pose. This keeps group-local `X_t` fixed across action directions.
+
+Preload experiments:
+
+```text
+sofa_njf_linearity_preload_probe.yaml: preload 0.2 mm, increments 0.05/0.1/0.2 mm
+sofa_njf_linearity_preload_zero_probe.yaml: same, plus zero-action baseline for drift subtraction
+sofa_njf_linearity_preload_dense_probe.yaml: same preload, denser grid [17, 13, 5]
+```
+
+Current results:
+
+```text
+preload_probe: validation PASS, depth diagnosis plausible, linearity_mean_error=0.283030, superposition_mean_error=0.405078
+preload_zero_probe: zero baseline generated as diagnostic only; validator flags zero actions; baseline-corrected linearity_mean_error=0.283273
+preload_dense_probe: validation PASS, depth diagnosis plausible, linearity_mean_error=1.745659; dense contact point was not sufficiently geometry-aligned
+```
+
+Interpretation: preload fixes the contact activation discontinuity and makes max-node displacement scale with depth, but the full-field response shape still changes too much over `0.05/0.1/0.2 mm` for strict local-Jacobian supervision. Zero-action baseline subtraction does not fix this. The current point-collision probe therefore cannot yet provide a realistic `0.05-0.2 mm` linear range. Stage 3 factorial generation should remain blocked until the contact model is upgraded, most likely to surface collision or another continuous/compliant contact representation.
+
+Next analysis gap: implement a surface-collision or compliant-contact prototype and rerun the preload linearity test. Do not build the factorial Stage 3 dataset from point-collision data unless the target is explicitly coarse/nonlinear response diagnostics rather than strict local NJF training.
 
 Detailed variable controls, required data fields, expected CSV/JSON/Markdown outputs, and interpretation tables for these experiments are maintained in `docs/EXPERIMENT_DESIGN.md` under `NJF Response Basis Validation Plan`.

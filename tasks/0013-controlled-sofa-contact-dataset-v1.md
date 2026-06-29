@@ -360,6 +360,7 @@ scripts/run_sofa_python.sh tissue_dataset_v0/scripts/validate_njf_dataset.py pat
 * [x] Stage 1 cross-group response-basis analysis implemented and run on `sofa_njf_basis_batch_valid`.
 * [x] Stage 2 action-magnitude linearity and tangent-superposition analysis implemented and run on `sofa_njf_basis_batch_valid`.
 * [x] Probe-depth diagnosis implemented; smaller `0.01/0.02/0.05 mm` and micro `0.002/0.005/0.01 mm` probes generated and analyzed.
+* [x] Preloaded incremental-action diagnostics implemented; point-collision still fails `0.05/0.1/0.2 mm` full-field linearity, so Stage 3 is blocked until contact representation improves.
 
 ## Notes
 
@@ -711,3 +712,47 @@ validator_errors=0
 ```
 
 Decision: for the current point-collision probe setup, use `<= 0.01 mm` as the conservative strict-local NJF action range. The old `0.05/0.1/0.2 mm` data can support qualitative low-rank diagnostics, but it should not be used as strict local-Jacobian magnitude supervision. Future broader datasets must either use geometry-aware contact points with this micro range or switch to surface collision before increasing action magnitudes.
+
+## Preloaded Incremental Action Diagnostics
+
+User constraint: `0.01 mm` is too small to be useful, so Stage 3 must not proceed until the realistic local linear range is enlarged.
+
+Implementation changes:
+
+- `SofaFemBackend` now supports an optional normal preload before recording `X_t`.
+- `action[5]` can be interpreted as an increment from the preloaded pose using `sofa_probe_incremental_after_preload`.
+- `analyze_action_linearity.py` now supports zero-action baseline subtraction when a zero-magnitude action is present.
+
+New diagnostic configs:
+
+```text
+tissue_dataset_v0/configs/sofa_njf_linearity_preload_probe.yaml
+tissue_dataset_v0/configs/sofa_njf_linearity_preload_zero_probe.yaml
+tissue_dataset_v0/configs/sofa_njf_linearity_preload_dense_probe.yaml
+```
+
+Results:
+
+```text
+preload_probe:
+  validation=PASS
+  depth_diagnosis=plausible
+  linearity_mean_error=0.283030
+  superposition_mean_error=0.405078
+  basis_top2_explained=0.999996
+
+preload_zero_probe:
+  includes zero actions for diagnostic drift subtraction, so generic validator reports expected zero-action errors
+  depth_diagnosis=plausible
+  baseline_corrected_linearity_mean_error=0.283273
+
+preload_dense_probe:
+  validation=PASS
+  depth_diagnosis=plausible
+  linearity_mean_error=1.745659
+  dense contact point was not sufficiently geometry-aligned for the changed mesh
+```
+
+Conclusion: preload removes the initial contact activation discontinuity and makes max-node displacement scale with depth, but full-field response shape still changes too much over `0.05/0.1/0.2 mm`. Zero-action baseline subtraction does not solve it. The current point-collision formulation cannot yet provide a realistic strict-local linear range.
+
+Decision: Stage 3 factorial dataset remains blocked. Next work should prototype surface collision or another continuous/compliant contact representation, then rerun the preload linearity test. Do not use the point-collision `0.05/0.1/0.2 mm` data as strict local NJF supervision.

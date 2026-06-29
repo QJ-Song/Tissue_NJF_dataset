@@ -196,17 +196,24 @@ def analyze_group_linearity(group: GroupData, threshold: float) -> list[dict[str
         ordered = sorted(records, key=lambda item: item.magnitude_m)
         if len(ordered) < 2:
             continue
-        reference = ordered[0]
-        ref_norm = float(np.linalg.norm(reference.response))
+        baseline = ordered[0] if ordered[0].magnitude_m <= 1e-12 else None
+        positive = [record for record in ordered if record.magnitude_m > 1e-12]
+        if len(positive) < 2:
+            continue
+        reference = positive[0]
+        baseline_response = np.zeros_like(reference.response) if baseline is None else baseline.response
+        reference_response = reference.response - baseline_response
+        ref_norm = float(np.linalg.norm(reference_response))
         if ref_norm <= 0.0 or reference.magnitude_m <= 0.0:
             continue
-        for record in ordered[1:]:
+        for record in positive[1:]:
+            corrected_response = record.response - baseline_response
             scale = record.magnitude_m / reference.magnitude_m
-            predicted = scale * reference.response
-            actual_norm = float(np.linalg.norm(record.response))
-            absolute_error = float(np.linalg.norm(record.response - predicted))
+            predicted = scale * reference_response
+            actual_norm = float(np.linalg.norm(corrected_response))
+            absolute_error = float(np.linalg.norm(corrected_response - predicted))
             relative_error = absolute_error / max(actual_norm, 1e-12)
-            cosine = cosine_similarity(record.response, predicted)
+            cosine = cosine_similarity(corrected_response, predicted)
             rows.append(
                 {
                     "group_id": group.group_id,
@@ -215,6 +222,7 @@ def analyze_group_linearity(group: GroupData, threshold: float) -> list[dict[str
                     "youngs_modulus": group.youngs_modulus,
                     "poisson_ratio": group.poisson_ratio,
                     "direction_key": direction,
+                    "baseline_magnitude_mm": None if baseline is None else baseline.magnitude_mm,
                     "reference_magnitude_mm": reference.magnitude_mm,
                     "magnitude_mm": record.magnitude_mm,
                     "scale_factor": scale,
@@ -231,9 +239,11 @@ def analyze_group_linearity(group: GroupData, threshold: float) -> list[dict[str
 
 def analyze_group_superposition(group: GroupData, threshold: float) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    zero_by_direction = {record.direction_key: record for record in group.records if record.magnitude_m <= 1e-12}
     records_by_mag: dict[float, list[ActionResponse]] = {}
     for record in group.records:
-        records_by_mag.setdefault(round(record.magnitude_m, 10), []).append(record)
+        if record.magnitude_m > 1e-12:
+            records_by_mag.setdefault(round(record.magnitude_m, 10), []).append(record)
     for _, records in sorted(records_by_mag.items()):
         normal = find_normal_record(records)
         if normal is None:
@@ -253,9 +263,10 @@ def analyze_group_superposition(group: GroupData, threshold: float) -> list[dict
                 lateral_target = target.direction[:2]
                 alpha = projection_scale(lateral_target, lateral_x)
                 beta = projection_scale(lateral_target, lateral_y)
-                residual_x = x_record.response - normal.response
-                residual_y = y_record.response - normal.response
-                residual_target = target.response - normal.response
+                normal_response = corrected_record_response(normal, zero_by_direction)
+                residual_x = corrected_record_response(x_record, zero_by_direction) - normal_response
+                residual_y = corrected_record_response(y_record, zero_by_direction) - normal_response
+                residual_target = corrected_record_response(target, zero_by_direction) - normal_response
                 predicted = alpha * residual_x + beta * residual_y
                 denominator = float(np.linalg.norm(residual_target))
                 absolute_error = float(np.linalg.norm(residual_target - predicted))
@@ -282,6 +293,13 @@ def analyze_group_superposition(group: GroupData, threshold: float) -> list[dict
                     }
                 )
     return rows
+
+
+def corrected_record_response(record: ActionResponse, zero_by_direction: dict[str, ActionResponse]) -> np.ndarray:
+    baseline = zero_by_direction.get(record.direction_key)
+    if baseline is None:
+        return record.response
+    return record.response - baseline.response
 
 
 def records_by_direction(records: list[ActionResponse]) -> dict[str, list[ActionResponse]]:
