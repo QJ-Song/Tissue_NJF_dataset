@@ -597,9 +597,468 @@ Results: compile passed, sample generation passed, core validator passed with ze
 
 #### D6: Surface Collision
 
-Priority: defer until after controlled dataset v1 unless D3/D4 prove point-collision contact is insufficient.
+Priority: active as of 2026-06-29. Earlier work deferred surface collision, but point-collision probe contact has not produced a realistic local-linear action range: micro steps near `0.01 mm` can pass, while `0.05` to `0.2 mm` remains too nonlinear/noisy for the intended NJF local perturbation scale. Because `0.01 mm` is not a practical target, surface collision is now the next blocker before Stage 3 response-basis expansion.
 
-Surface collision would require a tissue collision surface, mapping between mechanical and collision/visual models, contact normal validation, and likely a stronger contact checker. It is useful, but it should not block the first controlled dataset if point-collision probe contact gives stable bounded responses.
+Goal: build and smoke-test a standalone SOFA official-liver scene with tetrahedral FEM mechanics and mapped surface triangle collision before changing `SofaFemBackend`.
+
+References:
+
+- `examples/Demos/liver.scn` and `liverConfiguration.scn` for the official liver FEM using `liver.msh` and `liver-smooth.obj`;
+- `examples/Demos/fallingSOFA.scn` for tetrahedral FEM plus surface collision/contact pipeline;
+- `examples/Demos/caduceus.scn` for a separate OBJ collision mesh mapped to deformable DOFs via `BarycentricMapping`.
+
+Implementation result:
+
+- Status: standalone scene and smoke test implemented on 2026-06-29.
+- New scene: `scenes/liver_surface_collision.py`.
+- New smoke script: `scripts/check_liver_surface_collision.py`.
+- The scene uses SOFA-installed `liver.msh` for the volume FEM and `liver-smooth.obj` for the mapped collision/visual surface.
+- The liver collision node uses `TriangleCollisionModel`, `LineCollisionModel`, and `PointCollisionModel`; the liver collision node does not use `SphereCollisionModel`.
+- The collision surface maps to the liver FEM mechanical state with `BarycentricMapping`.
+- The probe is a simple kinematic sphere for smoke testing only.
+- Mesh lookup uses `SOFA_MESH_DIR`, `SOFA_ROOT`, `CONDA_PREFIX`, or `sys.prefix`; the project does not hard-code a private mesh path.
+
+Observed smoke result:
+
+```text
+command: scripts/run_sofa_python.sh scripts/check_liver_surface_collision.py --format json
+valid: true
+volume mesh: liver.msh
+surface mesh: liver-smooth.obj
+mechanical nodes: 181
+surface nodes: 2194
+collision models: TriangleCollisionModel, LineCollisionModel, PointCollisionModel
+mapping: BarycentricMapping
+first contact/proximity step: 29
+contact/proximity frames: 54
+min signed gap: 0.05044 scene units, with detection threshold 0.051
+max liver displacement: 0.51386 scene units
+max surface displacement: 0.52510 scene units
+```
+
+Acceptance status: D6 standalone surface collision is smoke-tested and now has a standalone fixed-contact small-depth linearity diagnostic. It is not yet integrated into dataset generation.
+
+Small-depth diagnostic result:
+
+- New script: `scripts/diagnose_liver_surface_linearity.py`.
+- Default command: `scripts/run_sofa_python.sh scripts/diagnose_liver_surface_linearity.py --format json`.
+- Default depths: `0.05`, `0.1`, and `0.2 mm`, with `scene_units_per_mm=1.0`.
+- Result: default diagnostic passed. Relative scale errors were `0.05509` for `0.05 -> 0.10 mm` and `0.09858` for `0.05 -> 0.20 mm`.
+- Extended sweep `0.05 0.1 0.2 0.3 0.5` showed `0.3 mm` fails the 10% threshold with relative scale error `0.12724`, and `0.5 mm` clearly fails with `0.39802`.
+
+Interpretation before physical scale calibration: the standalone surface-collision liver scene appears to recover a practical local-linear range up to about `0.2 scene units`, while `0.3 scene units` and above should not be used as local Jacobian supervision without further retuning.
+
+Scale calibration result:
+
+- New script: `scripts/calibrate_liver_mesh_scale.py`.
+- Default command: `scripts/run_sofa_python.sh scripts/calibrate_liver_mesh_scale.py --format json`.
+- Default method: bounding-box long-axis calibration on `liver-smooth.obj`.
+- Default anatomical assumption: target liver long axis `150 mm`; callers can override with `--target-long-axis-mm`.
+- Observed mesh size: `x=6.386355`, `y=4.907551`, `z=4.412135` scene units.
+- Observed scale for 150 mm target: `mm_per_scene_unit=23.487576`, `scene_units_per_mm=0.0425757`.
+- Under this calibration, `0.05`, `0.10`, and `0.20` scene units correspond to about `1.17`, `2.35`, and `4.70 mm`.
+- A 120 mm target sanity run produced `mm_per_scene_unit=18.790061` and `scene_units_per_mm=0.05321963`, confirming that external liver-size assumptions are supported.
+
+Calibrated physical-mm diagnostic:
+
+- Command: `scripts/run_sofa_python.sh scripts/diagnose_liver_surface_linearity.py --depths-mm 1 2 5 7 --scene-units-per-mm 0.0425757 --output tissue_dataset_v0/outputs/liver_surface_linearity_diagnostic/summary_calibrated_150mm.json`.
+- Result: `1 -> 2 mm` relative scale error `0.06050` passed; `1 -> 5 mm` error `0.11418` and `1 -> 7 mm` error `0.13664` exceeded the 10% threshold.
+
+Interpretation after scale calibration: with the 150 mm long-axis assumption, the robust NJF local target range is approximately `1-2 mm`. Around `4-5 mm` should be treated as near-boundary or rollout-evaluation range, not core local Jacobian supervision.
+
+Visualization result:
+
+- Diagnostic report script: `scripts/visualize_liver_surface_diagnostics.py`.
+- Diagnostic command: `python3 scripts/visualize_liver_surface_diagnostics.py`.
+- Diagnostic output: `tissue_dataset_v0/outputs/liver_surface_visualization/report.html`.
+- Actual tissue deformation visualization now uses the existing Isaac Sim offline USD/USDA replay pattern.
+- New SOFA state script: `scripts/generate_liver_surface_deformation_state.py`.
+- New Isaac Sim export script: `scripts/export_liver_surface_deformation_isaacsim.py`.
+- Commands:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_deformation_state.py --depth-mm 2
+env_isaacsim/bin/python scripts/export_liver_surface_deformation_isaacsim.py
+```
+
+- Output: `tissue_dataset_v0/outputs/liver_surface_deformation_isaacsim/isaacsim_liver_surface_deformation.usda`.
+- The default USDA contains animated `/World/LiverSurface` with stable natural liver material, animated `/World/Probe`, and `/World/ContactPoint`.
+- To avoid unnatural color blending, `/World/BaselineGhost` and `/World/DisplacementVectors` are disabled by default and are available only with `--show-baseline-ghost --show-displacement-vectors`.
+- Debug command: `env_isaacsim/bin/python scripts/export_liver_surface_deformation_isaacsim.py --show-baseline-ghost --show-displacement-vectors --output tissue_dataset_v0/outputs/liver_surface_deformation_isaacsim/isaacsim_liver_surface_deformation_debug.usda`.
+- Observed 2 mm calibrated run: 2194 surface nodes, 4384 faces, 120 contact frames, max surface displacement `0.101698` scene units, default output USDA about 243 KB, debug USDA about 405 KB.
+
+Dataset-compatible bridge result:
+
+- New script: `scripts/generate_liver_surface_sample.py`.
+- Purpose: expose the standalone official-liver surface-collision scene through the existing `sample_*` artifact schema before rewriting `SofaFemBackend`.
+- Default command: `scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite`.
+- Default output: `tissue_dataset_v0/outputs/liver_surface_contact_sample/sample_000001`.
+- Output unit/axis policy: SOFA coordinates are converted with `dataset_xyz = sofa_xzy`, so dataset `z` is vertical; vertices and tool poses are written in meters.
+- Default scale: 150 mm liver long-axis calibration.
+- Default action: 2 mm vertical surface-collision press with `--probe-clearance-mm 0.0`, so `tool_pose_0 -> tool_pose_1` motion equals saved action depth.
+- Observed result: 2194 surface nodes, 4384 faces, 2.000 mm tool motion, max surface displacement `4.005 mm`, contact detected from step 0 with 118 contact/proximity frames.
+- Verification passed: `python3 -m py_compile scripts/generate_liver_surface_sample.py`; `validate_sample.py` with zero errors/warnings; `read_dataset_smoke.py` requiring tool/contact/solver artifacts; `check_contact.py`; and `check_tool_direction.py` with zero angle error.
+
+Bridge Mode A update:
+
+- `scripts/generate_liver_surface_sample.py` supports `--depths-mm` for multi-sample local perturbation bridge datasets.
+- It writes root-level `dataset_metadata.json` plus the existing sample artifacts.
+- It records optional boundary artifacts for the official-liver surface output: `fixed_node_indices.npy`, `free_node_indices.npy`, `boundary_mask.npy`, and `boundary.json`. Because the official demo fixes volume nodes `3, 39, 64` while this bridge exports surface vertices, the surface mask is explicitly all false and `boundary_type` is `official_liver_volume_fixed_indices_surface_unmapped`.
+- `tissue_dataset_v0/scripts/check_boundary_solver.py` accepts this bridge boundary type instead of assuming all D5-like samples use `fixed_bottom`.
+- `--contact-distance-mm` now controls the SOFA contact response threshold and defaults to `0.1 mm`.
+- `--contact-observation-distance-mm` controls only the nearest-surface-vertex contact summary threshold and defaults to `1.2 mm`.
+- The bridge now follows `preload -> record X_t -> action_steps -> settle_steps -> record X_next`, with defaults `preload_steps=60`, `action_steps=40`, and `settle_steps=80`.
+
+Observed calibrated bridge dataset:
+
+```text
+command: scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --output tissue_dataset_v0/outputs/liver_surface_mode_a_bridge_calibrated --sample-id 1 --depths-mm 1.17 2.35 4.70
+sample_000001: tool motion 1.170 mm, max displacement 1.631 mm
+sample_000002: tool motion 2.350 mm, max displacement 3.083 mm
+sample_000003: tool motion 4.700 mm, max displacement 5.413 mm
+```
+
+Verification passed: compile, core `validate_sample.py`, `read_dataset_smoke.py` requiring tool/contact/boundary/solver artifacts, `check_contact.py`, `check_tool_direction.py`, and bridge-aware `check_boundary_solver.py`.
+
+Calibrated bridge linearity result:
+
+```text
+1.17 -> 2.35 mm: scale_error=0.02506, cosine=0.99977
+1.17 -> 4.70 mm: scale_error=0.05934, cosine=0.99867
+```
+
+Interpretation: after reducing SOFA `contactDistance`, separating the vertex-gap contact observation threshold, and matching the standalone preload/action/settle protocol, the dataset-compatible bridge reproduces the earlier surface-collision linearity conclusion. The earlier poor `0.25/0.5/1.0 mm` bridge result was not a contradiction of the prior benchmark; those actions were below the previous contact/proximity scale and were not apples-to-apples with the standalone diagnostic.
+
+
+#### D6.5: Surface-Collision Mode B Bridge Smoke
+
+Status: implemented on 2026-06-30.
+
+Goal: move from single-direction calibrated linearity to a smoke-sized response-basis group using the official liver surface-collision bridge.
+
+Implementation result:
+
+- `scenes/liver_surface_collision.py` now supports configurable `probe_direction` in SOFA coordinates.
+- `scripts/generate_liver_surface_sample.py` now supports `--direction-set basis_smoke`, `--layout grouped`, and `--group-id`.
+- `basis_smoke` uses three dataset-frame directions: normal, 12 degree `tilt_x`, and 12 degree `tilt_y`.
+- Grouped output writes `samples/` plus `groups/group_000001/` with `actions.npy`, `responses.npy`, `state_initial.npy`, `fixed_node_mask.npy`, `surface_points.npy`, `contact_point.npy`, `contact_normal.npy`, and `group_metadata.json`.
+- Mode B smoke uses `--preload-steps 0` intentionally so all directions share identical `vertices_0`. A direction-specific preload produced about `0.38 mm` baseline mismatch and is not valid for fixed-state response-basis grouping.
+
+Smoke command:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --layout grouped --direction-set basis_smoke --output tissue_dataset_v0/outputs/liver_surface_mode_b_bridge_smoke --sample-id 1 --depths-mm 1.17 2.35 --preload-steps 0
+```
+
+Observed result:
+
+```text
+samples: 6
+unique action directions: 3
+action magnitudes: 1.17 mm, 2.35 mm
+surface vertices: 2194
+faces: 4384
+state_mismatch_max_m: 0.0
+max response: about 3.53 mm
+```
+
+Verification passed:
+
+- `python3 -m py_compile scenes/liver_surface_collision.py scripts/generate_liver_surface_sample.py`
+- `validate_sample.py` on all six samples
+- `read_dataset_smoke.py` requiring tool/contact/boundary/solver artifacts
+- `check_contact.py`
+- `check_tool_direction.py --require-nonvertical`
+- `check_boundary_solver.py`
+
+Response-basis analysis:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_response_basis.py tissue_dataset_v0/outputs/liver_surface_mode_b_bridge_smoke --output tissue_dataset_v0/outputs/liver_surface_mode_b_bridge_smoke/analysis/response_basis_summary.json
+```
+
+Observed smoke basis metrics:
+
+```text
+effective_rank: 1.442
+top1 cumulative explained: 0.895643
+top2 cumulative explained: 0.991183
+top3 cumulative explained: 0.999781
+leave-one-out mean relative error: 0.050239
+leave-one-out max relative error: 0.069371
+```
+
+Interpretation: the K=6 group is smoke-sized but already shows low-dimensional response structure under surface collision. Do not present this as a final research result; the next basis step should increase to K>=12 with more directions and/or magnitudes while preserving fixed `X_t`.
+
+
+#### D6.6: Surface-Collision Mode B Bridge v1
+
+Status: implemented on 2026-06-30.
+
+Goal: promote the Mode B bridge from K=6 smoke to a first usable fixed-contact response-basis group.
+
+Implementation result:
+
+- `scripts/generate_liver_surface_sample.py` now supports `--direction-set basis_v1`.
+- `basis_v1` contains 6 directions: normal, +/-x tilt, +/-y tilt, and diagonal xy tilt.
+- All tilted directions use a 12 degree total tilt relative to the normal.
+- The action type is now `surface_collision_directed_press`.
+- Mode B group metadata now uses `surface_collision_bridge_response_basis`; `smoke_sized_group` marks whether K<12.
+
+Run command:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --layout grouped --direction-set basis_v1 --output tissue_dataset_v0/outputs/liver_surface_mode_b_bridge_v1 --sample-id 1 --depths-mm 1.17 2.35 4.70 --preload-steps 0
+```
+
+Observed group:
+
+```text
+action_count: 18
+unique directions: 6
+action magnitudes: 1.17 mm, 2.35 mm, 4.70 mm
+responses shape: [18, 2194, 3]
+state_mismatch_max_m: 0.0
+smoke_sized_group: false
+max response: about 6.32 mm
+```
+
+Verification passed:
+
+- `python3 -m py_compile scripts/generate_liver_surface_sample.py`
+- `validate_sample.py` on all 18 samples
+- `read_dataset_smoke.py` requiring tool/contact/boundary/solver artifacts
+- `check_contact.py --min-samples 18 --max-min-gap-mm 2.0 --max-penetration-mm 2.0`
+- `check_tool_direction.py --require-nonvertical`
+- `check_boundary_solver.py --min-samples 18`
+- `analyze_response_basis.py`
+
+Basis result:
+
+```text
+effective_rank: 1.358
+top1 cumulative explained: 0.920643
+top2 cumulative explained: 0.991576
+top3 cumulative explained: 0.999615
+leave-one-out mean relative error: 0.044930
+leave-one-out max relative error: 0.094149
+```
+
+Interpretation: this fixed-contact K=18 group is now sufficient for a first single-group Mode B sanity conclusion: local responses are strongly low-dimensional under the current official-liver surface-collision setup. It is not sufficient for cross-group or shared-basis conclusions.
+
+Next step after D6.6: generate multiple Mode B groups by changing one factor at a time. The recommended order is same material/boundary with multiple contact points first, then material variation at a fixed contact point, then boundary variation later after boundary encoding is improved.
+
+
+#### D6.7: Multi-Contact Mode B Response-Basis Dataset v1
+
+Status: implemented on 2026-06-30.
+
+Goal: test whether response bases remain shared when only contact point changes, while material, boundary, tool geometry, solver config, action directions, and action magnitudes stay fixed.
+
+Implementation result:
+
+- `scenes/liver_surface_collision.py` now supports an optional explicit `contact_point`.
+- `scripts/generate_liver_surface_sample.py` now supports `--contact-set top_center|top_three`.
+- `top_three` writes three Mode B groups, one per contact point: left, center, and right top-surface contacts.
+- Each group still fixes exactly one contact point and varies only action direction/magnitude.
+
+Run command:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --layout grouped --contact-set top_three --direction-set basis_v1 --output tissue_dataset_v0/outputs/liver_surface_mode_b_contact_three_v1 --sample-id 1 --depths-mm 1.17 2.35 4.70 --preload-steps 0
+```
+
+Observed dataset:
+
+```text
+groups: 3
+samples: 54
+per-group K: 18
+directions per group: 6
+magnitudes per group: 1.17 mm, 2.35 mm, 4.70 mm
+state_mismatch_max_m: 0.0 for every group
+```
+
+Verification passed:
+
+- validator over all 54 samples: invalid=0, errors=0, warnings=0
+- `read_dataset_smoke.py` with tool/contact/boundary/solver requirements
+- `check_contact.py --min-samples 54 --max-min-gap-mm 2.0 --max-penetration-mm 2.0`
+- `check_tool_direction.py --require-nonvertical`
+- `check_boundary_solver.py --min-samples 54`
+- `analyze_response_basis.py`
+- `analyze_basis_across_groups.py --rank 2`
+
+Per-group basis result:
+
+```text
+group_000001 contact_top_left_000001: effective_rank=1.711, top2=0.979604, loo_mean=0.093317
+group_000002 contact_top_center_000001: effective_rank=1.158, top2=0.994204, loo_mean=0.049255
+group_000003 contact_top_right_000001: effective_rank=1.041, top2=0.998654, loo_mean=0.021630
+mean effective_rank=1.303441
+mean top2=0.990821
+```
+
+Cross-contact basis result:
+
+```text
+same_material_diff_contact pairs: 6
+projection_similarity_mean: 0.679566
+principal_angle_mean_deg: 31.582
+cross_reconstruction_error_mean: 0.438450
+```
+
+Interpretation: each fixed-contact group remains strongly low-dimensional, but cross-contact reconstruction is not strong. This is the expected and useful result for NJF: basis appears local and condition-dependent, so the future model should condition on contact point/local geometry rather than using one fixed global basis.
+
+Next step after D6.7: controlled material variation at fixed contact point, using the same `basis_v1` action set and `--preload-steps 0`, so we can compare same-contact/different-material basis similarity and response scaling.
+
+
+#### D6.8: Material-Variation Mode B Response-Basis Dataset v1
+
+Status: implemented on 2026-06-30.
+
+Goal: test whether response bases remain shared when only material changes, while contact point, boundary, solver config, tool geometry, action directions, and action magnitudes stay fixed.
+
+Implementation result:
+
+- `scripts/generate_liver_surface_sample.py` now supports `--material-set single|young_three`.
+- `young_three` creates three Young's modulus settings: `1000`, `3000`, and `10000`, with Poisson ratio fixed at `0.3` unless overridden.
+- Material IDs and parameters are written into sample and group metadata.
+- Each material writes one Mode B group, so group semantics remain valid: a group fixes exactly one material and varies only action direction/magnitude.
+
+Run command:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --layout grouped --contact-set top_center --material-set young_three --direction-set basis_v1 --output tissue_dataset_v0/outputs/liver_surface_mode_b_material_three_v1 --sample-id 1 --depths-mm 1.17 2.35 4.70 --preload-steps 0
+```
+
+Observed dataset:
+
+```text
+groups: 3
+samples: 54
+contact point: contact_top_center_000001 for every group
+per-group K: 18
+directions per group: 6
+magnitudes per group: 1.17 mm, 2.35 mm, 4.70 mm
+Young's modulus values: 1000, 3000, 10000
+Poisson ratio: 0.3
+state_mismatch_max_m: 0.0 for every group
+```
+
+Verification passed:
+
+- validator over all 54 samples: invalid=0, errors=0, warnings=0
+- `read_dataset_smoke.py` with tool/contact/boundary/solver requirements
+- `check_contact.py --min-samples 54 --max-min-gap-mm 2.0 --max-penetration-mm 2.0`
+- `check_tool_direction.py --require-nonvertical`
+- `check_boundary_solver.py --min-samples 54`
+- `analyze_response_basis.py`
+- `analyze_basis_across_groups.py --rank 2`
+
+Per-group basis result:
+
+```text
+group_000001 material_young_1000: effective_rank=1.209, top2=0.997753, loo_mean=0.025464, response_norm_mean=0.097851 m
+group_000002 material_young_3000: effective_rank=1.158, top2=0.994204, loo_mean=0.049255, response_norm_mean=0.065985 m
+group_000003 material_young_10000: effective_rank=1.242, top2=0.988022, loo_mean=0.080493, response_norm_mean=0.033249 m
+mean effective_rank=1.203186
+mean top2=0.993326
+```
+
+Cross-material basis result:
+
+```text
+same_contact_diff_material pairs: 6
+projection_similarity_mean: 0.760302
+principal_angle_mean_deg: 27.189
+cross_reconstruction_error_mean: 0.323145
+```
+
+Material-scale result:
+
+```text
+E 1000 vs 3000: response_norm_ratio=1.482933, normalized_cross_error=0.301817
+E 1000 vs 10000: response_norm_ratio=2.942958, normalized_cross_error=0.589260
+E 3000 vs 10000: response_norm_ratio=1.984552, normalized_cross_error=0.465776
+```
+
+Interpretation: each fixed-material group remains strongly low-dimensional. Material variation changes both response amplitude and response pattern; it is not a pure scalar rescaling under the current contact setup. This supports conditioning NJF on material parameters.
+
+Next step after D6.8: decide whether to move to Mode C rollout artifacts or first add a combined small factorial dataset, e.g. 3 contacts x 3 materials x 18 actions, to support a cleaner shared-basis train/held-out test.
+
+
+#### D6.9: Factorial Contact-Material Mode B Dataset v1
+
+Status: implemented on 2026-06-30.
+
+Goal: combine the contact-point and material sweeps into one small controlled factorial dataset for cleaner cross-group and shared-basis analysis.
+
+Run command:
+
+```bash
+scripts/run_sofa_python.sh scripts/generate_liver_surface_sample.py --overwrite --layout grouped --contact-set top_three --material-set young_three --direction-set basis_v1 --output tissue_dataset_v0/outputs/liver_surface_mode_b_factorial_3x3_v1 --sample-id 1 --depths-mm 1.17 2.35 4.70 --preload-steps 0
+```
+
+Observed dataset:
+
+```text
+contacts: 3
+materials: 3
+groups: 9
+samples: 162
+per-group K: 18
+directions per group: 6
+magnitudes per group: 1.17 mm, 2.35 mm, 4.70 mm
+state_mismatch_max_m: 0.0 for every group
+```
+
+Verification passed:
+
+- compile for `scenes/liver_surface_collision.py` and `scripts/generate_liver_surface_sample.py`
+- validator over all 162 samples: invalid=0, errors=0, warnings=0
+- `read_dataset_smoke.py` with tool/contact/boundary/solver requirements
+- `check_contact.py --min-samples 162 --max-min-gap-mm 2.0 --max-penetration-mm 2.0`
+- `check_tool_direction.py --require-nonvertical`
+- `check_boundary_solver.py --min-samples 162`
+- `analyze_response_basis.py`
+- `analyze_basis_across_groups.py --rank 2`
+
+Per-group basis result:
+
+```text
+mean effective_rank=1.286046
+mean top2=0.987973
+mean leave-one-out error=0.061361
+effective_rank range=[1.041, 1.711]
+top2 range=[0.967158, 0.999208]
+```
+
+Cross-group rank-2 basis result:
+
+```text
+same_contact_diff_material: pairs=18, projection_similarity=0.800843, principal_angle_mean_deg=24.021, cross_reconstruction_error=0.343122
+same_material_diff_contact: pairs=18, projection_similarity=0.614229, principal_angle_mean_deg=36.844, cross_reconstruction_error=0.490669
+diff_contact_diff_material: pairs=36, projection_similarity=0.565954, principal_angle_mean_deg=40.695, cross_reconstruction_error=0.534312
+offdiag_cross_reconstruction_error_mean=0.475604
+```
+
+Held-out shared-basis smoke:
+
+```text
+train: left + center contacts, all materials, 6 groups
+test: right contact, all materials, 3 groups
+rank: 2
+test_error_mean=0.260164
+test_error_max=0.313995
+E1000 test error=0.208318
+E3000 test error=0.258177
+E10000 test error=0.313995
+```
+
+Interpretation: factorial results strengthen the current conclusion. Fixed-condition responses are low-dimensional, but cross-condition basis transfer is condition-dependent. Material variation at the same contact is easier than contact variation at the same material; changing both is hardest. This supports NJF conditioning on both `p`/local geometry and material `theta`.
+
+Next step after D6.9: move to Mode C rollout artifacts, because the Mode B fixed-condition and cross-condition evidence is now sufficient for the first controlled dataset phase.
 
 #### D7: Sequence-Level Tool and Contact Artifacts
 
@@ -627,6 +1086,193 @@ solver_status.json
 ```
 
 Smoke rollout may start with `T = 3`; useful rollout validation should target `T >= 10`. Vertical-only contact is not a complete Mode B response-basis target because it varies only action magnitude, not the local action direction basis.
+
+#### D7.1: Surface-Collision Mode C Rollout Bridge v1
+
+Implemented `scripts/generate_liver_surface_rollout.py` as the first direct Mode C rollout bridge for the official liver surface-collision scene. It runs one continuous SOFA trajectory and writes `trajectories/traj_*` artifacts directly: `states.npy`, `actions.npy`, `responses.npy`, `contact_points.npy`, `contact_normals.npy`, `tool_poses.npy`, `fixed_node_mask.npy`, `contact_status.npy`, `contact_distances.npy`, `trajectory_metadata.json`, and `solver_status.json`.
+
+The first useful run used top-center fixed material contact, single material `E=3000`, vertical normal direction, `T=10`, `step_size=1.17 mm`, `40` action substeps, and `20` settle steps per rollout step. Output root: `tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_v1`.
+
+Validation result:
+
+```text
+analyze_rollout_trajectories: PASS
+read_njf_dataset: PASS
+T: 10
+states shape: [11, 2194, 3]
+actions shape: [10, 6]
+responses shape: [10, 2194, 3]
+final max deformation: 15.866 mm
+max per-step response: 1.772 mm
+contact active: 10/10
+contact distance range: 0.111 mm to 0.338 mm
+tool step error max: 0.000009 mm
+tool/action angle error max: 0 deg
+fixed-node motion max: 0 mm
+```
+
+Also updated `tissue_dataset_v0/src/tissue_dataset_v0/njf/dataset.py` so `NJFDataset.summary()` counts `trajectories/` as `rollout_trajectory`. This lets Mode C-only roots pass `read_njf_dataset.py --require-mode rollout_trajectory`.
+
+Interpretation: D7 sequence fields are now available for a first Mode C rollout evaluation. This is still fixed material contact with approximate upward contact normals and nearest-vertex signed-gap observations; reliable contact force export and recomputed geometric contact point remain future work.
+
+
+#### D7.2: Rollout Drift and Single-Large-Step Analysis v1
+
+Extended `tissue_dataset_v0/scripts/analyze_rollout_trajectories.py` with:
+
+- adjacent response cosine and adjacent relative response change;
+- first-step-to-later-step response drift;
+- constant-first-step rollout diagnostic;
+- optional `--single-step-sample` final-state comparison;
+- optional `--csv-dir` per-step CSV export.
+
+Generated a matched single-large-step sample at `tissue_dataset_v0/outputs/liver_surface_single_large_11p7_v1/sample_000001` using the same top-center contact, material, vertical direction, and total displacement as the T=10 rollout. Validation, contact check, and tool-direction check passed.
+
+Observed metrics:
+
+```text
+adjacent_response_cosine_mean=0.981063
+adjacent_relative_change_mean=0.204464
+first_step_response_cosine_final=0.946018
+first_step_relative_change_final=0.388764
+constant_first_step_final_relative_l2_error=0.221470
+constant_first_step_final_max_node_error=4.612 mm
+single_large_vs_rollout_relative_l2_error=0.022662
+single_large_vs_rollout_pattern_cosine=0.999745
+single_large_vs_rollout_max_node_error=0.487 mm
+```
+
+Interpretation: in this simplified quasi-static vertical press, one slow 11.7 mm action and ten 1.17 mm rollout steps reach nearly the same final deformation. The stronger NJF-relevant signal is per-step response drift: a constant first-step response field accumulates about 22% relative L2 final error, so rollout evaluation should test state-conditioned small-step prediction rather than only final-state equivalence.
+
+Next rollout analysis should repeat this on non-vertical directions, multiple contact points, and multiple materials before drawing general conclusions about path dependence or local Jacobian validity.
+
+
+#### D7.3: Non-Vertical Contact-Material Rollout Batch v1
+
+Generated and analyzed a non-vertical Mode C batch at `tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1` using:
+
+```text
+direction: tilt_pos_x from basis_v1
+contacts: top_left, top_center, top_right
+materials: Young modulus 1000, 3000, 10000
+trajectories: 9
+steps per trajectory: 10
+step size: 1.17 mm
+total displacement: 11.7 mm
+```
+
+Validation passed:
+
+```text
+analyze_rollout_trajectories: PASS, 9 trajectories, 0 errors, 0 warnings
+read_njf_dataset --require-mode rollout_trajectory --min-trajectories 9: PASS
+contact_active: 10/10 for every trajectory
+```
+
+Aggregate response-drift results:
+
+```text
+final_max_mm: min=13.269013, mean=15.533157, max=19.755029
+step_response_max_mm: min=1.651124, mean=2.246438, max=3.934977
+adjacent_cos_mean: min=0.780920, mean=0.903977, max=0.987810
+adjacent_rel_change_mean: min=0.160621, mean=0.394453, max=0.712843
+first_step_cos_final: min=0.051641, mean=0.798732, max=0.957254
+constant_first_step_final_rel_l2: min=0.202028, mean=0.432849, max=0.803623
+constant_first_step_final_max_node_error_mm: min=3.453103, mean=7.062486, max=11.996601
+```
+
+Interpretation: response drift is much stronger and more condition-dependent in the tilt-x 3x3 batch than in the single vertical top-center rollout. Fixed-first-step rollout is unreliable across contact/material conditions, with mean final relative L2 error about `0.43` and worst case about `0.80`. This supports using Mode C to evaluate state-conditioned rolling models rather than a fixed local response field.
+
+Next useful step: add matched single-large-step generation/comparison for this 3x3 batch or implement a Mode-B-basis-per-step diagnostic. The current `generate_liver_surface_sample.py` can make single-large comparisons but needs a direction-id filter to avoid generating all six `basis_v1` directions when only `tilt_pos_x` is required.
+
+
+#### D7.4: Matched Single-Large Comparison for Tilt-X 3x3
+
+Added `--direction-id` filtering to `scripts/generate_liver_surface_sample.py`. This allows targeted single-large sample generation for `tilt_pos_x` without generating all `basis_v1` directions. Extended `tissue_dataset_v0/scripts/analyze_rollout_trajectories.py` so `--single-step-sample` can be a dataset root with multiple `sample_*` directories; each rollout trajectory is matched to a single-large sample by contact point, material, direction id, and total action magnitude.
+
+Generated matched single-large data at `tissue_dataset_v0/outputs/liver_surface_single_large_tilt_x_3x3_11p7_v1`:
+
+```text
+samples: 9
+contact_set: top_three
+material_set: young_three
+direction_id: tilt_pos_x
+depth: 11.7 mm
+action_steps: 400
+settle_steps: 200
+```
+
+Validation passed:
+
+```text
+default sample validation: 9 samples, 0 errors, 0 warnings
+check_contact: PASS
+check_tool_direction: PASS, nonvertical 12 degree tilt
+analyze_rollout_trajectories with matched single-large root: PASS, 9 trajectories, 0 errors, 0 warnings
+```
+
+Matched comparison metrics:
+
+```text
+single_large_rel_l2: min=0.015604, mean=0.071319, max=0.221009
+single_large_pattern_cosine: min=0.976668, mean=0.995937, max=0.999929
+single_large_max_node_error_mm: min=0.205648, mean=0.734584, max=1.905619
+constant_first_step_final_rel_l2: min=0.202028, mean=0.432849, max=0.803623
+constant_first_step_final_max_node_error_mm: min=3.453103, mean=7.062486, max=11.996601
+```
+
+Interpretation: final-state path dependence remains modest for most matched single-large comparisons, but fixed-first-step rolling error is much larger. For NJF, the stronger claim is not that a one-step final-state predictor always fails; it is that a local response model must be evaluated on per-step state-conditioned transitions. Large-step final-state data does not expose the changing local response field along the rollout.
+
+Next useful step: implement a Mode-B-basis-per-step diagnostic, using fixed-condition response basis groups to reconstruct each rollout step, then compare it against constant-first-step and future NJF predictions.
+
+
+#### D7.5: Mode-B-Basis-Per-Step Rollout Diagnostic v1
+
+Implemented `tissue_dataset_v0/scripts/analyze_rollout_basis_projection.py`. It matches each Mode C rollout trajectory to a fixed Mode B response-basis group by `contact_point_id`, `material_id`, and `boundary_id`, then projects every rollout step response `delta_X_k` onto that fixed initial-state basis. The basis is not updated across rollout steps.
+
+Basis variables:
+
+```text
+fixed per Mode B basis: mesh/state X0, contact point, material, boundary, tool geometry, solver/contact config
+varied inside Mode B basis: action direction and action magnitude
+current action family: basis_v1 small-cone press directions, 6 directions x 3 magnitudes
+```
+
+Command:
+
+```bash
+scripts/run_sofa_python.sh tissue_dataset_v0/scripts/analyze_rollout_basis_projection.py \
+  --rollout-dataset tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1 \
+  --basis-dataset tissue_dataset_v0/outputs/liver_surface_mode_b_factorial_3x3_v1 \
+  --ranks 2 3 4 \
+  --output tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1/analysis/rollout_basis_projection_summary.json \
+  --csv-output tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1/analysis/rollout_basis_projection_metrics.csv \
+  --report-output tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1/analysis/rollout_basis_projection_report.md
+```
+
+Result: PASS, `9` trajectories, `9` matched basis groups, `27` rank-specific results, `0` errors.
+
+Aggregate metrics:
+
+```text
+rank 2: step_err_mean=0.258662, final_err_mean=0.211910, final_err_max=0.423117, constant_final_mean=0.432849
+rank 3: step_err_mean=0.187414, final_err_mean=0.176309, final_err_max=0.417558, constant_final_mean=0.432849
+rank 4: step_err_mean=0.170237, final_err_mean=0.168869, final_err_max=0.375371, constant_final_mean=0.432849
+```
+
+Interpretation: a fixed response basis is much stronger than repeating the first response vector, but it is still not perfect. The current small-cone Mode B basis captures a stable low-dimensional subspace shared across rollout steps, while residual error indicates either state-conditioned basis changes, incomplete action-family coverage, or contact/nonlinearity effects. This supports the next modeling step: predict basis coefficients or a state-conditioned Jacobian, and use fixed-basis projection as a non-learning diagnostic reference.
+
+Next useful step: decide whether to implement a first coefficient diagnostic from saved data, or expand Mode B action family with wider cone/tangential components before training-side work.
+
+
+
+#### D7.6: Research Positioning Correction
+
+The Stage D / liver surface-collision experiments should be interpreted as controlled simulation analysis, not as the final NJF benchmark. Their purpose is to identify which variables affect local response and therefore what the dataset must include: contact point, material, boundary condition, action family, state/rollout step, tool geometry, and solver/contact metadata.
+
+Simulation-only baselines used so far, including fixed first-step response, fixed Mode B basis projection, and single-large-step final-state comparison, are diagnostic tools. They help explain why Mode B groups and Mode C rollout transitions are needed. They should not be presented as sufficient evidence that NJF outperforms existing deformation models on real tissue.
+
+The stronger reviewer-facing benchmark should eventually use real phantom/tissue data with calibrated tool actions and observed deformation, then compare NJF against existing deformation prediction models. SOFA remains valuable as a theory-analysis and dataset-design tool that improves interpretability and guides which variables the real acquisition should cover.
 
 ### Minimum Stage D Completion for SOFA NJF Dataset v1
 

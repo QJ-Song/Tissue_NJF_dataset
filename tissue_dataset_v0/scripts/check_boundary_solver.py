@@ -96,17 +96,21 @@ def check_sample(sample_dir: Path, *, fixed_displacement_tol_mm: float, allow_mi
         if not np.array_equal(np.nonzero(mask)[0], np.sort(fixed.astype(int))):
             issues.append(error(sample_id, "boundary_mask true indices do not match fixed_node_indices."))
 
+    boundary_type = str(boundary.get("boundary_type", ""))
+    allows_unmapped_surface_boundary = boundary_type == "official_liver_volume_fixed_indices_surface_unmapped"
     if fixed.size:
         fixed_disp_mm = np.linalg.norm(vertices_1[fixed.astype(int)] - vertices_0[fixed.astype(int)], axis=1) * 1000.0
         max_fixed_disp_mm = float(fixed_disp_mm.max())
     else:
         max_fixed_disp_mm = 0.0
-        issues.append(error(sample_id, "No fixed nodes recorded."))
+        if not allows_unmapped_surface_boundary:
+            issues.append(error(sample_id, "No fixed nodes recorded."))
     if max_fixed_disp_mm > fixed_displacement_tol_mm:
         issues.append(error(sample_id, f"Max fixed-node displacement {max_fixed_disp_mm:.6f} mm exceeds {fixed_displacement_tol_mm:.6f} mm."))
 
-    if boundary.get("boundary_type") != "fixed_bottom":
-        issues.append(error(sample_id, "boundary.boundary_type must be fixed_bottom for current D5 samples."))
+    allowed_boundary_types = {"fixed_bottom", "official_liver_volume_fixed_indices_surface_unmapped"}
+    if boundary_type not in allowed_boundary_types:
+        issues.append(error(sample_id, f"boundary.boundary_type must be one of {sorted(allowed_boundary_types)}, got {boundary_type}."))
     for key in ("fixed_node_count", "free_node_count", "total_node_count", "boundary_box"):
         if key not in boundary:
             issues.append(error(sample_id, f"boundary.json missing field: {key}."))
@@ -119,7 +123,7 @@ def check_sample(sample_dir: Path, *, fixed_displacement_tol_mm: float, allow_mi
     for key in solver_required:
         if key not in solver:
             issues.append(error(sample_id, f"solver_summary missing field: {key}."))
-    if not bool(solver.get("finite", False)) or bool(solver.get("nan_or_inf_detected", True)):
+    if not bool(solver.get("finite", solver.get("valid", False))) or bool(solver.get("nan_or_inf_detected", False)):
         issues.append(error(sample_id, "solver_summary reports non-finite state."))
     if float(solver.get("dt", 0.0)) <= 0.0:
         issues.append(error(sample_id, "solver_summary.dt must be positive."))

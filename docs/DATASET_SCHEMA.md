@@ -37,6 +37,8 @@ Current compact press `action.npy` uses six values:
 
 `dir_*` should be a unit vector. Press-like actions require `dir_z < 0`. Existing vertical samples use `(0, 0, -1)`; directional Stage A samples use a bounded upper-hemisphere cone while keeping the same required `action.npy` shape.
 
+For SOFA liver surface-collision `basis_v2` samples and rollouts, `dir_*` is the tool motion/action direction, while sample `meta.json`, rollout `trajectory_metadata.json`, and rollout dataset `metadata.json` also record `approach_direction` and `probe_approach_policy`. This separates how the rigid probe is initially placed against the surface from the local action direction. The default `basis_v2` policy is `normal_approach_for_basis_v2`, which starts the probe along the local top-surface normal and then moves it along the saved action direction. This is required for shear-like actions; using a tangential action vector as the initial approach direction can create artificial overlap with a curved surface.
+
 ## Recommended First-Stage Storage Layout
 
 ```text
@@ -272,7 +274,7 @@ tool_poses.npy      # [T+1, pose_dim]
 solver_status.json
 ```
 
-Current Mode C smoke implementation writes these artifacts under `dataset_root/trajectories/traj_000001/`. It also keeps the rollout source SOFA run as a normal `sample_*` record for traceability. The validator checks `responses == states[1:] - states[:-1]`, per-step action magnitude, fixed-node stability, shape consistency, finite arrays, and source sample existence.
+Current Mode C implementations write these artifacts under `dataset_root/trajectories/traj_*`. The original NJF smoke path assembles a trajectory from a continuous rollout source sample. The liver surface-collision bridge writes trajectory artifacts directly from one continuous SOFA scene through `scripts/generate_liver_surface_rollout.py`; it also writes root-level `metadata.json` and `dataset_metadata.json` so the SOFA-free `NJFDataset` reader can load Mode C-only roots. Validation checks `responses == states[1:] - states[:-1]`, per-step action magnitude, tool-pose/action consistency, fixed-node stability, shape consistency, finite arrays, and contact-status/contact-distance lengths. Source samples are optional for direct trajectory bridge outputs.
 
 The first NJF dataset should use small action magnitudes such as `0.05`, `0.1`, and `0.2` mm. Larger actions for rollout should be decomposed into small steps, not stored only as one final deformation.
 
@@ -315,6 +317,9 @@ The current SOFA `sample_*` layout is still the storage atom used by the NJF orc
 | `logs/frames/*.npz` | Simulation-time arrays, usually vertices per logged step | optional but useful | optional QA | temporary source for Mode C until explicit trajectories exist | Replay reads saved states only. |
 | `logs/frames/*.json` | Per-frame scalars: contact status, gap, observed contact point, tool position | useful | useful for basis diagnostics | important for per-step contact metadata | Current fields are scalar summaries, not full SOFA contact force. |
 | `logs/trajectory_summary.json` | Frame count, time range, available arrays/scalars, source files | useful | useful | useful | Supports replay and sequence QA. |
+
+
+For Mode C rollout trajectories generated with `basis_v2`, each trajectory metadata records `approach_direction` and `probe_approach_policy` in addition to per-step `actions.npy`. The saved action vector remains the physical tool motion direction and magnitude; the approach direction only documents how the rigid sphere was initially placed against the surface before the rollout action steps.
 
 Current gaps relative to full Mode A/B/C: contact force is not reliably exported; Mode B `groups/` artifacts are generated for smoke-sized fixed-contact response basis groups, but the stored `contact_normal.npy` is currently an approximate upward normal for the fixed-topology surface. Mode C `trajectories/` artifacts are generated for smoke-sized continuous rollout source samples, with per-step actions and responses extracted from logged intermediate frames.
 
