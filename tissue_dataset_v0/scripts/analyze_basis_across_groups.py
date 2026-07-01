@@ -51,13 +51,15 @@ def main() -> int:
     output_dir = args.output_dir or default_output_dir(args.dataset_or_groups)
     groups = [load_group(group_dir, rank=args.rank) for group_dir in group_dirs]
     pairwise = compute_pairwise(groups, rank=args.rank)
+    shared_basis = compute_shared_basis_diagnostic(groups, pairwise=pairwise, rank=args.rank)
     metadata_summary = summarize_pairwise_by_metadata(groups, pairwise)
     material_scale = analyze_material_scale_pattern(groups, rank=args.rank)
     per_group_rows = [group.per_group_row() for group in groups]
-    summary = build_summary(groups, pairwise, metadata_summary, material_scale, rank=args.rank)
+    summary = build_summary(groups, pairwise, metadata_summary, material_scale, shared_basis, rank=args.rank)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "per_group_metrics.csv", per_group_rows)
+    write_csv(output_dir / "shared_basis_reconstruction.csv", shared_basis["rows"])
     write_matrix_csv(output_dir / "projection_similarity.csv", pairwise["projection_similarity"], groups)
     write_matrix_csv(output_dir / "principal_angles_mean.csv", pairwise["principal_angles_mean_deg"], groups)
     write_matrix_csv(output_dir / "principal_angles_max.csv", pairwise["principal_angles_max_deg"], groups)
@@ -353,11 +355,121 @@ def analyze_material_scale_pattern(groups: list[GroupBasis], *, rank: int) -> li
     return rows
 
 
+
+def compute_shared_basis_diagnostic(
+    groups: list[GroupBasis],
+    *,
+    pairwise: dict[str, np.ndarray],
+    rank: int,
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    if not groups:
+        return {
+            "rank": int(rank),
+            "rows": rows,
+            "aggregate": {},
+            "interpretation": "not_answered; no groups",
+        }
+
+    clipped_rank = max(1, min(int(rank), min(group.basis.shape[0] for group in groups)))
+    pooled_basis = basis_from_rows(np.concatenate([group.centered for group in groups], axis=0), clipped_rank)
+    pairwise_cross = pairwise["cross_reconstruction_error"]
+
+    for target_index, target in enumerate(groups):
+        local_error = reconstruction_error(target.centered, target.basis[:clipped_rank])
+        pooled_error = reconstruction_error(target.centered, pooled_basis)
+        if len(groups) > 1:
+            train_rows = np.concatenate(
+                [group.centered for index, group in enumerate(groups) if index != target_index],
+                axis=0,
+            )
+            loo_basis = basis_from_rows(train_rows, clipped_rank)
+            loo_error = reconstruction_error(target.centered, loo_basis)
+            candidates = [
+                (float(pairwise_cross[source_index, target_index]), source_index)
+                for source_index in range(len(groups))
+                if source_index != target_index
+            ]
+            nearest_error, nearest_index = min(candidates, key=lambda item: item[0])
+            nearest = groups[nearest_index]
+            nearest_relation = metadata_relation(nearest, target)
+        else:
+            loo_error = None
+            nearest_error = None
+            nearest = None
+            nearest_relation = "not_available"
+        rows.append(
+            {
+                "group_id": target.group_id,
+                "contact_point_id": target.contact_point_id,
+                "material_id": target.material_id,
+                "boundary_id": target.boundary_id,
+                "rank": clipped_rank,
+                "local_group_basis_error": float(local_error),
+                "pooled_shared_basis_error": float(pooled_error),
+                "leave_one_group_out_shared_basis_error": None if loo_error is None else float(loo_error),
+                "nearest_group_basis_error": None if nearest_error is None else float(nearest_error),
+                "nearest_group_id": None if nearest is None else nearest.group_id,
+                "nearest_group_relation": nearest_relation,
+                "pooled_minus_local_error": float(pooled_error - local_error),
+                "loo_minus_local_error": None if loo_error is None else float(loo_error - local_error),
+                "nearest_minus_local_error": None if nearest_error is None else float(nearest_error - local_error),
+            }
+        )
+
+    aggregate = {
+        "local_group_basis_error": stat_summary_from_rows(rows, "local_group_basis_error"),
+        "pooled_shared_basis_error": stat_summary_from_rows(rows, "pooled_shared_basis_error"),
+        "leave_one_group_out_shared_basis_error": stat_summary_from_rows(rows, "leave_one_group_out_shared_basis_error"),
+        "nearest_group_basis_error": stat_summary_from_rows(rows, "nearest_group_basis_error"),
+        "pooled_minus_local_error": stat_summary_from_rows(rows, "pooled_minus_local_error"),
+        "loo_minus_local_error": stat_summary_from_rows(rows, "loo_minus_local_error"),
+        "nearest_minus_local_error": stat_summary_from_rows(rows, "nearest_minus_local_error"),
+    }
+    return {
+        "rank": clipped_rank,
+        "rows": rows,
+        "aggregate": aggregate,
+        "interpretation": shared_basis_decision({"aggregate": aggregate}),
+        "notes": [
+            "Group-local basis is trained and evaluated on the same group and is an expression diagnostic, not a predictor.",
+            "Pooled shared basis is trained on all centered group responses, including the target group.",
+            "Leave-one-group-out shared basis excludes the target group and is the cleanest shared-basis generalization diagnostic.",
+            "Nearest-group basis uses the best other group by reconstruction error and is an oracle nearest-neighbor diagnostic.",
+        ],
+    }
+
+
+def basis_from_rows(rows: np.ndarray, rank: int) -> np.ndarray:
+    rows = np.asarray(rows, dtype=np.float64)
+    if rows.ndim != 2 or rows.size == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    _, _, vh = np.linalg.svd(rows, full_matrices=False)
+    return vh[: max(1, min(int(rank), vh.shape[0]))]
+
+
+def metadata_relation(source: GroupBasis, target: GroupBasis) -> str:
+    same_contact = source.contact_point_id == target.contact_point_id
+    same_material = source.material_id == target.material_id
+    if same_contact and same_material:
+        return "same_contact_same_material"
+    if same_contact:
+        return "same_contact_diff_material"
+    if same_material:
+        return "same_material_diff_contact"
+    return "diff_contact_diff_material"
+
+
+def stat_summary_from_rows(rows: list[dict[str, Any]], key: str) -> dict[str, float]:
+    values = np.asarray([float(row[key]) for row in rows if row.get(key) is not None], dtype=np.float64)
+    return stat_summary(values)
+
 def build_summary(
     groups: list[GroupBasis],
     pairwise: dict[str, np.ndarray],
     metadata_summary: list[dict[str, Any]],
     material_scale: list[dict[str, Any]],
+    shared_basis: dict[str, Any],
     *,
     rank: int,
 ) -> dict[str, Any]:
@@ -397,8 +509,9 @@ def build_summary(
             "local_response_basis_low_dimensional": local_basis_decision(top2, effective),
             "basis_shared_across_contact_or_material": cross_group_decision(metadata_summary),
             "material_scale_or_pattern": material_decision(material_scale),
-            "shared_basis_generalization": "not_answered; requires Stage 4 train/held-out shared-basis experiment",
+            "shared_basis_generalization": shared_basis_decision(shared_basis),
         },
+        "shared_basis_diagnostic": shared_basis,
         "notes": [
             "All PCA/SVD bases are computed per group on mean-centered response matrices.",
             "Pairwise reconstruction uses the source group's centered basis on the target group's centered response matrix.",
@@ -429,6 +542,27 @@ def build_decision_report(summary: dict[str, Any]) -> str:
     ]
     for key, value in summary["questions"].items():
         lines.append(f"- {key}: {value}")
+    shared = summary.get("shared_basis_diagnostic", {}).get("aggregate", {})
+    if shared:
+        lines.extend(
+            [
+                "",
+                "## Shared Basis Diagnostic",
+                "",
+                "- Local group basis error mean: {value:.6f}".format(
+                    value=shared["local_group_basis_error"]["mean"]
+                ),
+                "- Pooled shared basis error mean: {value:.6f}".format(
+                    value=shared["pooled_shared_basis_error"]["mean"]
+                ),
+                "- Leave-one-group-out shared basis error mean: {value:.6f}".format(
+                    value=shared["leave_one_group_out_shared_basis_error"]["mean"]
+                ),
+                "- Nearest-group basis error mean: {value:.6f}".format(
+                    value=shared["nearest_group_basis_error"]["mean"]
+                ),
+            ]
+        )
     lines.extend(
         [
             "",
@@ -437,7 +571,7 @@ def build_decision_report(summary: dict[str, Any]) -> str:
             "- A low per-group rank supports a local response basis at fixed contact/material/boundary.",
             "- High cross-group reconstruction error means the basis is condition-dependent.",
             "- Material conclusions should compare raw and normalized responses; normalized mismatch indicates pattern change, not just scale change.",
-            "- Shared-basis generalization still requires a separate train/held-out experiment.",
+            "- Leave-one-group-out shared-basis reconstruction is the current H8 diagnostic; it is not a learned model benchmark.",
             "",
         ]
     )
@@ -457,6 +591,15 @@ def print_text(summary: dict[str, Any], output_dir: Path) -> None:
         f"top2_mean={top2['mean']:.6f} "
         f"offdiag_cross_recon_mean={cross['mean']:.6f}"
     )
+    shared = summary.get("shared_basis_diagnostic", {}).get("aggregate", {})
+    if shared:
+        print(
+            "shared_basis="
+            f"local_mean={shared['local_group_basis_error']['mean']:.6f} "
+            f"pooled_mean={shared['pooled_shared_basis_error']['mean']:.6f} "
+            f"loo_mean={shared['leave_one_group_out_shared_basis_error']['mean']:.6f} "
+            f"nearest_mean={shared['nearest_group_basis_error']['mean']:.6f}"
+        )
     for row in summary["metadata_grouped_summary"]:
         if not row["pair_count"]:
             continue
@@ -553,6 +696,23 @@ def cross_group_decision(metadata_summary: list[dict[str, Any]]) -> str:
     if best_error < 0.1:
         return "partly_shared; at least one metadata comparison reconstructs well"
     return "condition_dependent; cross-group reconstruction is not yet strong"
+
+
+def shared_basis_decision(shared_basis: dict[str, Any]) -> str:
+    aggregate = shared_basis.get("aggregate", {}) if isinstance(shared_basis, dict) else {}
+    if not aggregate:
+        return "not_answered"
+    local = float(aggregate.get("local_group_basis_error", {}).get("mean", 0.0))
+    pooled = float(aggregate.get("pooled_shared_basis_error", {}).get("mean", 0.0))
+    loo = float(aggregate.get("leave_one_group_out_shared_basis_error", {}).get("mean", 0.0))
+    nearest = float(aggregate.get("nearest_group_basis_error", {}).get("mean", 0.0))
+    if loo <= max(0.15, local * 2.0):
+        return "mostly_shared; leave-one-group-out shared basis reconstructs close to group-local basis"
+    if nearest < loo and nearest <= max(0.25, local * 3.0):
+        return "locally_or_conditionally_shared; nearest group is better than one global held-out shared basis"
+    if pooled < loo:
+        return "partly_shared_but_target_inclusion_matters; pooled basis improves when target group is included"
+    return "condition_specific; held-out shared basis is much worse than group-local expression"
 
 
 def material_decision(rows: list[dict[str, Any]]) -> str:
