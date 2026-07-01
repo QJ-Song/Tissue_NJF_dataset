@@ -68,6 +68,44 @@ env_isaacsim/bin/python tissue_dataset_v0/scripts/replay_sample.py   tissue_data
 ```
 
 
+
+
+## Role Of SOFA Experiments Versus Real Benchmarks
+
+The SOFA experiments in this repository are primarily theory-analysis and dataset-design experiments. They should answer questions such as:
+
+- Which variables change the local response basis: contact point, material, boundary condition, action family, or current state?
+- Is fixed-condition response locally low-rank?
+- Does a response basis transfer across contact/material groups?
+- Does rollout require state-conditioned local response, or is a fixed response/basis sufficient?
+- Which fields must the dataset save to support NJF training and diagnosis?
+
+SOFA experiments should not be presented as the final benchmark proving NJF superiority over deformation models. Simulation-only references such as fixed first-step response, fixed response basis, and single-large-step comparison are diagnostics. They are useful for interpreting assumptions and designing the dataset, but they are not enough to convince reviewers that NJF is superior in real tissue interaction.
+
+A persuasive NJF benchmark should later include real phantom or tissue data and compare against existing deformation models under calibrated acquisition. The real benchmark should include at least:
+
+```text
+calibrated tool pose/action;
+observed surface deformation from markers, stereo, RGB-D, or tracking;
+phantom/material label and boundary condition;
+camera/sensor calibration;
+train/test splits over contact, material, and action;
+comparisons against MLP/PointNet/GNN/scene-flow/dynamics/fixed-basis deformation baselines.
+```
+
+Therefore, current SOFA work should be written as:
+
+```text
+controlled simulation analysis -> dataset design -> NJF feasibility smoke test
+```
+
+not as:
+
+```text
+simulation-only proof that NJF is universally better or physically realistic.
+```
+
+
 # NJF Response Basis Validation Plan
 
 ## Group Definition

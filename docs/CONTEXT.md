@@ -10,6 +10,57 @@ The guiding research question is:
 Can deformable tissue dynamics be represented as a state-conditioned local action-to-motion Jacobian field, instead of directly predicting deformation or optical/scene flow?
 ```
 
+
+
+## Simulation And Real-Data Benchmark Positioning
+
+SOFA simulation should be treated as a controlled analysis tool, not as the final proof that NJF outperforms existing deformation models on real tissue. The current SOFA liver/contact work is valuable because it allows controlled variable isolation: contact point, action family, material, boundary condition, solver settings, and rollout horizon can be changed independently. Its main purpose is to explain what variables affect local tissue response and what the NJF dataset must contain.
+
+The stronger research claim should be split into two parts:
+
+```text
+SOFA controlled analysis:
+  - study low-rank local response structure;
+  - test whether basis depends on contact/material/boundary/action;
+  - test whether rollout step responses change with state;
+  - decide dataset schema, grouping, splits, and action coverage;
+  - provide feasibility checks for NJF-style local response learning.
+
+Real phantom/tissue benchmark:
+  - collect real deformation data with calibrated tool action and observed surface response;
+  - compare NJF against existing deformation prediction models and fair baselines;
+  - provide evidence that the method is reliable outside simulation.
+```
+
+Do not overstate SOFA-only results as proof of clinical realism or universal model superiority. A more defensible claim is that SOFA gives interpretable controlled analysis and guides which variables a real phantom benchmark should cover. The eventual model benchmark should include real or phantom data and compare against existing deformation models, not only internally designed simulation diagnostics such as fixed first-step response.
+
+
+## Current Bounded Task: NJF Theory Only
+
+The active task is not the full long-term NJF project. It is limited to theoretical discussion of NJF assumptions using controlled SOFA diagnostics.
+
+Current task scope:
+
+```text
+- map existing SOFA diagnostics to NJF assumptions;
+- clarify whether local responses are low-dimensional;
+- clarify whether response basis and coefficients depend on state/contact/material/boundary/action;
+- decide whether a shared/local-aligned basis diagnostic is still needed;
+- stop once the theory assumptions are clearly supported, partially supported, or untested.
+```
+
+Current task exclusions:
+
+```text
+- real phantom or real tissue experiment design;
+- NJF model training;
+- comparison against SOTA deformation models;
+- clinical realism claims;
+- additional complex SOFA scenes without a specific theory question.
+```
+
+The active convergence document is `docs/NJF_THEORETICAL_ASSUMPTIONS_MATRIX.md`.
+
 ## Current Repository Reality
 
 The repository currently contains two related layers:
