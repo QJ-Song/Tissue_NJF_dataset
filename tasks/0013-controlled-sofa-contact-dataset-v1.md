@@ -12,6 +12,34 @@ The first useful dataset must therefore emphasize small local perturbations, res
 
 This task is an integration and acceptance task. It should compose existing capabilities from Stage A/B/C/D, keep the current single-sample pipeline compatible, and add a lightweight NJF dataset orchestration layer above it.
 
+
+
+## Research Positioning Update: Controlled Simulation Analysis, Not Final Benchmark
+
+The role of this SOFA dataset task is to build a controlled analysis dataset for NJF, not to claim that simulation alone proves NJF is better than existing deformation models. The controlled SOFA dataset should be used to analyze:
+
+```text
+- whether fixed-condition local response is low-dimensional;
+- how contact point, material, boundary condition, action family, and state change the response basis;
+- why Mode A/B/C data organization is needed for NJF;
+- what fields and metadata must be collected for interpretable local response learning;
+- which variables should be covered later by real phantom/tissue acquisition.
+```
+
+The final persuasive NJF benchmark should be a separate real or phantom-data benchmark. That benchmark should compare NJF against existing deformation models under calibrated tool action and observed deformation data. Simulation-only diagnostic baselines such as fixed first-step response, fixed response basis projection, and single-large-step final-state comparison are useful for theory analysis and dataset design, but they should not be framed as sufficient reviewer-facing evidence of real-world superiority.
+
+Revised task framing:
+
+```text
+SOFA controlled dataset v1:
+  purpose = theory analysis, variable isolation, dataset schema, NJF feasibility
+
+Future real phantom/tissue benchmark:
+  purpose = method credibility, comparison against existing deformation models, real-world evidence
+```
+
+When writing future reports, avoid claims like "SOFA proves NJF is superior" or "SOFA liver collision is realistic enough". Prefer claims like "controlled SOFA analysis indicates which variables affect local response and motivates Mode A/B/C dataset design".
+
 ## Goal
 
 Create the first SOFA NJF dataset generation path with three supported modes:
@@ -115,6 +143,42 @@ Likely to modify:
 - `tissue_dataset_v0/scripts/run_njf_smoke_test.py`
 - `docs/DATASET_SCHEMA.md`
 - `docs/ROADMAP.md`
+
+
+
+## Controlled Liver Surface Dataset v1 Standard Entry
+
+Added `tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py` as the standard orchestration entry for the current controlled SOFA liver surface dataset. It does not add new physics; it composes the existing generation, validation, and analysis scripts into one reproducible pipeline.
+
+Standard dry-run command:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py --dry-run --reuse-existing --stages all
+```
+
+Standard analysis command against existing outputs:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py --reuse-existing --stages analyze
+```
+
+Standard regeneration command:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py --overwrite --stages all
+```
+
+Default dataset roots:
+
+```text
+tissue_dataset_v0/outputs/liver_surface_mode_b_factorial_3x3_v1
+tissue_dataset_v0/outputs/liver_surface_mode_c_rollout_tilt_x_3x3_v1
+tissue_dataset_v0/outputs/liver_surface_single_large_tilt_x_3x3_11p7_v1
+```
+
+The dry-run and actual `--stages analyze --reuse-existing` checks passed. The analysis stage reproduced current reference results: Mode B effective-rank/top2 analysis, cross-group basis analysis, rollout-vs-single-large analysis, and rollout basis projection rank 2/3/4 analysis.
+
+Detailed usage and current interpretation are documented in `docs/CONTROLLED_SOFA_DATASET_V1.md`.
 
 ## Mode A: Local Perturbation Dataset
 

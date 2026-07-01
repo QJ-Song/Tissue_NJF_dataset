@@ -237,9 +237,11 @@ class NJFDataset:
         group_shape = None
         if self.group_dirs:
             group_shape = tuple(int(dim) for dim in np.load(self.group_dirs[0] / "responses.npy").shape)
+            mode_counts.setdefault("response_basis_group", len(self.group_dirs))
         traj_shape = None
         if self.trajectory_dirs:
             traj_shape = tuple(int(dim) for dim in np.load(self.trajectory_dirs[0] / "states.npy").shape)
+            mode_counts["rollout_trajectory"] = len(self.trajectory_dirs)
         return NJFDatasetSummary(
             dataset_root=self.root,
             sample_count=len(self.sample_dirs),
