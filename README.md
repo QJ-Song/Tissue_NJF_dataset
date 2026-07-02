@@ -1,74 +1,182 @@
-# Isaac Sim Workspace
+# Tissue NJF Dataset
 
-This directory is prepared for NVIDIA Isaac Sim on the remote Ubuntu server:
+This repository is an Isaac Sim workspace plus a standalone SOFA/tissue dataset module for Neural Jacobian Field (NJF) research.
 
-- Host: `renlab-Z790-EAGLE-AX`
-- OS: Ubuntu `24.04.4 LTS`
-- Architecture: `x86_64`
-- GPU: NVIDIA GeForce RTX 5090, 32 GB VRAM
-- Driver: `595.71.05`
-- CUDA reported by driver: `13.2`
-- Python: `3.12.3`
-- Isaac Sim target: `6.0.0.1`
+The current project stage is **NJF theory diagnostics using controlled SOFA simulation**. It is not a trained NJF benchmark, not a real-tissue experiment, and not a clinical-realism claim.
 
-The selected installation method is the official Python/pip workflow. It keeps
-Isaac Sim inside `env_isaacsim/` under this workspace.
+## Current Status
 
-## Install
+The current bounded theory stage is closed. The main conclusion is:
 
-Run these commands on the Ubuntu server, not from the macOS SMB client:
+```text
+Within the tested single-contact normal, oblique, and shear-like action family,
+fixed-condition soft-tissue responses are locally low-dimensional.
 
-```bash
-cd ~/issacsim
-chmod +x scripts/check_host.sh scripts/install_isaacsim.sh
-./scripts/install_isaacsim.sh
+Response bases and coefficients are condition- and state-dependent.
+Fixed response, fixed coefficient, global shared basis, and simple depth/scalar
+rules are insufficient.
+
+This motivates a conditioned local Jacobian representation:
+
+delta_X = J_phi(X, p, theta, B) * delta_a
 ```
 
-The script installs:
+This conclusion is limited to controlled SOFA diagnostics. It does **not** show that a trained NJF outperforms existing deformation models, and it does **not** cover all possible tool actions.
 
-- PyTorch `2.11.0` from the CUDA 13 wheel index
-- Isaac Sim `6.0.0.1` with the `all` extra
+## Start Here
 
-The optional extension cache is split out because it is a very large download:
+Read these documents first:
 
-```bash
-./scripts/install_extscache.sh
+```text
+docs/NJF_THEORY_SUMMARY.md
+  Final bounded theory summary and supported/unsupported claims.
+
+docs/NJF_THEORETICAL_ASSUMPTIONS_MATRIX.md
+  H1-H8 assumption matrix mapping diagnostics to NJF theory claims.
+
+docs/NJF_ACTION_COVERAGE_H7.md
+  Explicit action-family boundary for the current claim.
+
+docs/CONTROLLED_SOFA_DATASET_V1.md
+  Controlled SOFA liver surface dataset commands, datasets, and reference results.
+
+docs/NJF_MECHANISM_DIAGNOSTICS.md
+  Diagnostic layer overview and interpretation rules.
 ```
 
-## Run
+For broader project context:
 
-After installation:
+```text
+docs/CONTEXT.md
+docs/ARCHITECTURE.md
+docs/DATASET_SCHEMA.md
+docs/SOFA_SETUP.md
+docs/ISAAC_SIM_SETUP.md
+```
+
+## Repository Layout
+
+```text
+scripts/
+  Isaac Sim setup helpers and standalone SOFA liver surface-collision scripts.
+
+scenes/
+  Scene definitions such as the SOFA liver surface-collision scene.
+  Runtime logs and generated scene artifacts are ignored.
+
+tissue_dataset_v0/
+  Standalone dataset generator, SOFA/NJF readers, validators, analysis scripts,
+  and replay/export utilities.
+
+docs/
+  Durable project context, architecture notes, dataset schema, theory summary,
+  and controlled-dataset documentation.
+
+tasks/
+  Historical and active task notes. The current NJF theory stage converged in
+  tasks/0021-njf-theoretical-assumptions-matrix.md.
+```
+
+Generated data is written under:
+
+```text
+tissue_dataset_v0/outputs/
+```
+
+This directory is ignored by Git and should not be committed.
+
+## Common Commands
+
+Run SOFA Python commands through the project wrapper:
 
 ```bash
-cd ~/issacsim
-source env_isaacsim/bin/activate
-export OMNI_KIT_ACCEPT_EULA=YES
-isaacsim isaacsim.exp.compatibility_check
+scripts/run_sofa_python.sh -c "import SofaRuntime, Sofa; print('SOFA OK')"
+```
+
+Run the controlled dataset dry-run:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py \
+  --dry-run \
+  --reuse-existing \
+  --stages all
+```
+
+Run analysis against existing generated outputs:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py \
+  --reuse-existing \
+  --stages analyze
+```
+
+Regenerate the standard controlled outputs:
+
+```bash
+python3 tissue_dataset_v0/scripts/run_liver_surface_controlled_v1.py \
+  --overwrite \
+  --stages all
+```
+
+Regeneration runs SOFA and can take time. Generated outputs stay outside Git.
+
+## Current Task Boundary
+
+In scope for the just-completed stage:
+
+```text
+- local response existence;
+- fixed-condition low-rank response;
+- contact/material/state condition dependence;
+- rollout state dependence;
+- coefficient instability;
+- insufficiency of simple scalar/depth/local-ridge diagnostics;
+- bounded action-family coverage for basis_v2;
+- shared/global basis insufficiency.
+```
+
+Out of scope for this stage:
+
+```text
+- NJF neural network training;
+- real phantom or real tissue experiment design;
+- SOTA deformation-model benchmark;
+- clinical realism claims;
+- all-action coverage claims;
+- grasping, cutting, puncture, tearing, or frictional sliding.
+```
+
+## Git And Data Policy
+
+Commit source code, configs, docs, and task notes.
+
+Do not commit:
+
+```text
+tissue_dataset_v0/outputs/
+large logs
+videos
+checkpoints
+local environment directories
+private credentials or machine-specific secrets
+```
+
+The repository should remain reproducible from source plus documented commands, while large generated datasets remain local artifacts.
+
+## Isaac Sim Setup
+
+Isaac Sim is currently used for environment setup, initial scene exploration, and offline USD/USDA replay/export. It is not the default physics backend for current SOFA diagnostics.
+
+The original Isaac Sim setup path is documented in:
+
+```text
+docs/ISAAC_SIM_SETUP.md
+```
+
+The helper script remains:
+
+```bash
 bash scripts/runisaacsim.sh
 ```
 
-The compatibility check passed on this host after clearing a stale
-`/tmp/fuse` mount. If it fails again with `df: /tmp/fuse: Transport endpoint is
-not connected`, run:
-
-```bash
-bash scripts/fixfuse.sh
-```
-
-Set `OMNI_KIT_ACCEPT_EULA=YES` only after reviewing and accepting the NVIDIA
-Omniverse license terms.
-
-When running through a plain SSH or VS Code Remote terminal, Isaac Sim can pass
-the system checks but still report that no display was detected. Start the GUI
-from the server's desktop session or use a supported livestreaming/remote
-desktop method for interactive graphics.
-
-The helper script `scripts/runisaacsim.sh` starts Isaac Sim with the ROS 2
-bridge disabled. Isaac Sim Full enables the ROS 2 bridge by default on Linux,
-but it requires a working ROS 2 environment. Enable it only after sourcing the
-intended ROS 2 setup.
-
-## Notes
-
-The directory name is currently `issacsim`. NVIDIA's product name is
-`Isaac Sim`; the scripts work with the current directory name.
+The workspace directory is currently named `issacsim`; NVIDIA's product name is `Isaac Sim`.
