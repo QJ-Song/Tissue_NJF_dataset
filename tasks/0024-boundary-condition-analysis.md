@@ -240,3 +240,12 @@ response norm ratios
 ## Status
 
 Boundary selector, smoke validation, and first paired boundary Mode B diagnostic complete. Boundary effects are initially supported in simplified SOFA constraints, but realistic boundary characterization remains incomplete.
+
+
+## Related Theory Note
+
+The basis-versus-coefficient interpretation that uses this boundary result is saved in:
+
+```text
+docs/NJF_BASIS_COEFFICIENT_FACTOR_ANALYSIS.md
+```

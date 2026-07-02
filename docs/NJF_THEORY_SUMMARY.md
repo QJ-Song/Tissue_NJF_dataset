@@ -153,6 +153,17 @@ not covered: pure tangent, retraction/unload, frictional sliding, tool rotation,
 
 Interpretation: the project can claim multi-direction behavior within the tested `basis_v2` family, but cannot claim all possible tool actions. See `docs/NJF_ACTION_COVERAGE_H7.md`.
 
+### Basis Versus Coefficient Factor Interpretation
+
+A separate factor-analysis note records the current interpretation of whether each variable mainly affects the response basis or action coefficients:
+
+```text
+docs/NJF_BASIS_COEFFICIENT_FACTOR_ANALYSIS.md
+```
+
+Short version: target point `q` parameterizes the basis field; action direction and magnitude primarily affect coefficients; state, contact point, material, and boundary condition all condition the local response basis, with state and material also affecting coefficients.
+
+
 ## What This Supports
 
 The current evidence supports:

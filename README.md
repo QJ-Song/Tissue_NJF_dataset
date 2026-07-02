@@ -23,6 +23,22 @@ delta_X = J_phi(X, p, theta, B) * delta_a
 
 This conclusion is limited to controlled SOFA diagnostics. It does **not** show that a trained NJF outperforms existing deformation models, and it does **not** cover all possible tool actions.
 
+The latest boundary diagnostic adds initial evidence that simplified fixed-node boundary conditions can strongly change response basis patterns:
+
+```text
+same contact/material, different boundary rank4 cross reconstruction error mean ~= 0.742796
+normalized cross-boundary reconstruction error mean ~= 0.736558
+```
+
+The current basis/coefficient interpretation is:
+
+```text
+delta_x(q) = U(q | S, p, M, B) @ c(a | S, p, M, B)
+
+S, p, M, B, and q condition the local response basis field.
+Action direction and magnitude mainly condition the coefficients in the local small-step regime.
+```
+
 ## Start Here
 
 Read these documents first:
@@ -42,6 +58,12 @@ docs/CONTROLLED_SOFA_DATASET_V1.md
 
 docs/NJF_MECHANISM_DIAGNOSTICS.md
   Diagnostic layer overview and interpretation rules.
+
+docs/NJF_BOUNDARY_DIAGNOSTIC_SUMMARY.md
+  Boundary-condition diagnostic table, metrics, and interpretation.
+
+docs/NJF_BASIS_COEFFICIENT_FACTOR_ANALYSIS.md
+  Working decomposition of basis versus coefficient factors for future NJF structure.
 ```
 
 For broader project context:
@@ -132,7 +154,9 @@ In scope for the just-completed stage:
 - coefficient instability;
 - insufficiency of simple scalar/depth/local-ridge diagnostics;
 - bounded action-family coverage for basis_v2;
-- shared/global basis insufficiency.
+- shared/global basis insufficiency;
+- simplified boundary-condition influence on response basis;
+- basis-versus-coefficient factor interpretation for future NJF structure.
 ```
 
 Out of scope for this stage:
