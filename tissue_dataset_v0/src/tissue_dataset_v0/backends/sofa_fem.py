@@ -247,7 +247,7 @@ class SofaFemBackend:
         positions = self._initial_positions(geometry, str(cfg.get("sofa_tissue_shape", "slab")))
         dofs = slab.addObject("MechanicalObject", name="dofs", template="Vec3", position=positions.tolist())
         slab.addObject("UniformMass", name="mass", totalMass=max(float(material.density) * geometry.size_x * geometry.size_y * geometry.thickness, 1e-6))
-        slab.addObject("FixedProjectiveConstraint", name="fixed_bottom", indices=self._bottom_indices(geometry))
+        slab.addObject("FixedProjectiveConstraint", name="fixed_boundary", indices=self._fixed_indices_string(request))
         if interaction_model == "probe_contact":
             slab.addObject("UncoupledConstraintCorrection", defaultCompliance=1e-7)
             slab.addObject("PointCollisionModel")
@@ -563,10 +563,9 @@ class SofaFemBackend:
         z = half_z * zn * dome
         return [float(x), float(y), float(z)]
 
-    def _bottom_indices(self, geometry) -> str:
-        nx = max(int(geometry.nx) + 1, 2)
-        ny = max(int(geometry.ny) + 1, 2)
-        return " ".join(str(j * nx + i) for j in range(ny) for i in range(nx))
+    def _fixed_indices_string(self, request: SampleRequest) -> str:
+        indices = self._fixed_index_array(request)
+        return " ".join(str(int(index)) for index in indices)
 
     def _vertex_positions(self, dofs: Any) -> np.ndarray:
         return np.asarray(dofs.position.array(), dtype=np.float64).copy()
@@ -598,8 +597,58 @@ class SofaFemBackend:
         ny = max(int(geometry.ny) + 1, 2)
         return np.asarray([j * nx + i for j in range(ny) for i in range(nx)], dtype=np.int32)
 
+    def _back_index_array(self, geometry) -> np.ndarray:
+        nx = max(int(geometry.nx) + 1, 2)
+        ny = max(int(geometry.ny) + 1, 2)
+        nz = max(int(geometry.layers), 2)
+        j = 0
+        return np.asarray([k * nx * ny + j * nx + i for k in range(nz) for i in range(nx)], dtype=np.int32)
+
+    def _small_bottom_patch_index_array(self, request: SampleRequest) -> np.ndarray:
+        geometry = request.geometry
+        nx = max(int(geometry.nx) + 1, 2)
+        ny = max(int(geometry.ny) + 1, 2)
+        ratio = float(request.config.extra.get("sofa_boundary_patch_radius_ratio", max(float(geometry.fixed_border_ratio), 0.25)))
+        ratio = min(max(ratio, 0.0), 1.0)
+        indices: list[int] = []
+        for j in range(ny):
+            y_norm = -1.0 + 2.0 * j / max(ny - 1, 1)
+            for i in range(nx):
+                x_norm = -1.0 + 2.0 * i / max(nx - 1, 1)
+                if abs(x_norm) <= ratio and abs(y_norm) <= ratio:
+                    indices.append(j * nx + i)
+        if indices:
+            return np.asarray(indices, dtype=np.int32)
+        center_i = int(round((nx - 1) * 0.5))
+        center_j = int(round((ny - 1) * 0.5))
+        return np.asarray([center_j * nx + center_i], dtype=np.int32)
+
+    def _fixed_index_array(self, request: SampleRequest) -> np.ndarray:
+        boundary_type = self._boundary_type(request)
+        if boundary_type == "bottom_fixed":
+            fixed = self._bottom_index_array(request.geometry)
+        elif boundary_type == "back_fixed":
+            fixed = self._back_index_array(request.geometry)
+        elif boundary_type == "bottom_and_back_fixed":
+            fixed = np.union1d(self._bottom_index_array(request.geometry), self._back_index_array(request.geometry)).astype(np.int32)
+        elif boundary_type == "small_bottom_patch_fixed":
+            fixed = self._small_bottom_patch_index_array(request)
+        else:
+            raise ValueError(
+                "Unsupported boundary_condition "
+                f"{request.material.boundary_condition!r}; expected bottom_fixed, back_fixed, "
+                "bottom_and_back_fixed, or small_bottom_patch_fixed."
+            )
+        return np.asarray(np.unique(fixed), dtype=np.int32)
+
+    def _boundary_type(self, request: SampleRequest) -> str:
+        value = str(request.material.boundary_condition or "bottom_fixed")
+        if value == "fixed_bottom":
+            return "bottom_fixed"
+        return value
+
     def _boundary_payload(self, request: SampleRequest, vertices_0: np.ndarray) -> dict[str, Any]:
-        fixed = self._bottom_index_array(request.geometry)
+        fixed = self._fixed_index_array(request)
         vertex_count = int(vertices_0.shape[0])
         mask = np.zeros(vertex_count, dtype=bool)
         mask[fixed] = True
@@ -607,13 +656,16 @@ class SofaFemBackend:
         fixed_points = vertices_0[fixed]
         bbox_min = fixed_points.min(axis=0).astype(float).tolist()
         bbox_max = fixed_points.max(axis=0).astype(float).tolist()
+        boundary_type = self._boundary_type(request)
         boundary = {
-            "boundary_type": "fixed_bottom",
+            "boundary_id": str(request.config.extra.get("boundary_id", "boundary_000001")),
+            "boundary_type": boundary_type,
             "constraint_object": "FixedProjectiveConstraint",
-            "selection_method": "regular_grid_bottom_layer",
+            "selection_method": self._boundary_selection_method(boundary_type),
             "fixed_node_count": int(fixed.shape[0]),
             "free_node_count": int(free.shape[0]),
             "total_node_count": vertex_count,
+            "fixed_centroid": fixed_points.mean(axis=0).astype(float).tolist() if fixed_points.size else None,
             "fixed_z": float(fixed_points[:, 2].mean()) if fixed_points.size else None,
             "boundary_box": {
                 "min": bbox_min,
@@ -630,6 +682,15 @@ class SofaFemBackend:
             "boundary_mask": mask,
             "boundary": boundary,
         }
+
+    def _boundary_selection_method(self, boundary_type: str) -> str:
+        methods = {
+            "bottom_fixed": "regular_grid_bottom_layer",
+            "back_fixed": "regular_grid_back_side_y_min",
+            "bottom_and_back_fixed": "regular_grid_bottom_layer_union_back_side_y_min",
+            "small_bottom_patch_fixed": "regular_grid_bottom_center_patch",
+        }
+        return methods.get(boundary_type, "unknown")
 
     def _solver_summary(
         self,

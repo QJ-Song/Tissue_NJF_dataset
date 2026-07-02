@@ -46,7 +46,7 @@ Within the tested single-contact normal, oblique, and shear-like action family, 
 |---|---|---|---|
 | H1 | Local response exists under controlled small tool actions. | Supported | SOFA liver surface-collision samples and Mode B groups produce stable nonzero responses under fixed contact/material/boundary settings. |
 | H2 | Fixed-condition responses are low-dimensional. | Strongly supported | Mode B per-group SVD: `basis_v1` top2 explained mean about `0.987973`; `basis_v2` top2 explained mean about `0.997322`, effective-rank mean about `1.071`. |
-| H3 | Response basis is condition-dependent. | Supported for contact/material | Cross-group reconstruction is substantially worse than per-group reconstruction; `basis_v2` rank4 off-diagonal cross reconstruction mean about `0.426280`. |
+| H3 | Response basis is condition-dependent. | Supported for contact/material and initially supported for simplified boundary conditions | Cross-group reconstruction is substantially worse than per-group reconstruction; `basis_v2` rank4 off-diagonal cross reconstruction mean about `0.426280`. Paired boundary Mode B v1 shows same-contact/material different-boundary rank4 cross reconstruction mean about `0.742796`. |
 | H4 | Rollout responses depend on current state `X_t`. | Supported | Multi-direction rollout fixed-first response diagnostic has final relative L2 mean about `0.567206`, showing first response cannot be reused through rollout. |
 | H5 | Fixed first-step coefficients are insufficient. | Supported | B2 fixed first coefficient is close to B0; multi-direction rank4 final relative L2 mean about `0.566936`. |
 | H6 | Simple scalar/depth/local-ridge rules are insufficient. | Supported for tested hand-crafted features | B3 depth trend is unstable; R1/R2/R3 fitted ridge diagnostics do not close the expression gap to B1. |
@@ -78,7 +78,21 @@ same_material_diff_contact_cross_err=0.425404
 diff_contact_diff_material_cross_err=0.500469
 ```
 
-Interpretation: contact point changes are especially important, and material changes also affect response pattern. This supports conditioning `J_phi` on `p` and `theta`. Boundary variation remains less explored in the current liver batch, so claims about `B` should stay theoretical/structural rather than strongly empirical.
+Interpretation: contact point changes are especially important, material changes also affect response pattern, and the paired boundary Mode B v1 diagnostic shows that simplified fixed-node boundary changes can strongly alter response patterns. This supports conditioning `J_phi` on `p`, `theta`, and `B`, while still treating realistic anatomical boundary modeling as outside the current claim.
+
+
+Boundary paired Mode B v1 adds initial evidence for `B`:
+
+Detailed boundary diagnostic table: `docs/NJF_BOUNDARY_DIAGNOSTIC_SUMMARY.md`.
+
+
+```text
+same_contact_same_material_diff_boundary rank4 cross_err_mean=0.742796
+boundary_pattern normalized_cross_error_mean=0.736558
+boundary_pattern normalized_projection_similarity_mean=0.427186
+```
+
+Interpretation: simplified boundary changes are not only scale changes; response basis pattern changes remain after response normalization.
 
 ### Rollout State Dependence
 

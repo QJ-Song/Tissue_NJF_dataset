@@ -452,6 +452,84 @@ prefix_per_trajectory R3 rank4=0.880351
 
 Interpretation: these hand-designed local statistics do not explain coefficient evolution better than scalar features. The result supports moving away from more scalar ridge diagnostics and toward clearer NJF state/contact representation design.
 
+
+### Boundary Condition Selector Smoke
+
+Boundary variation support was added as an engineering prerequisite for later boundary-effect diagnostics. `SofaFemBackend` now uses `MaterialConfig.boundary_condition` to choose actual `FixedProjectiveConstraint` node sets instead of only recording the string as metadata. The supported selector types are:
+
+```text
+bottom_fixed
+back_fixed
+bottom_and_back_fixed
+small_bottom_patch_fixed
+```
+
+Smoke config:
+
+```text
+tissue_dataset_v0/configs/sofa_njf_boundary_smoke.yaml
+```
+
+Smoke output, not committed:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_boundary_smoke
+```
+
+Observed smoke metadata:
+
+```text
+bottom_fixed: fixed=63
+back_fixed: fixed=36
+bottom_and_back_fixed: fixed=90
+small_bottom_patch_fixed: fixed=3
+```
+
+Validation status: `validate_njf_dataset.py` passed with `12` samples and `4` groups; `check_boundary_solver.py` passed with `0` errors; read smoke passed. The only validation warnings are expected because each smoke group has `K=3`, below the useful basis-analysis threshold.
+
+Interpretation: boundary conditions can now be varied in real SOFA constraints and recorded in dataset metadata. This is not yet a boundary-effect analysis. The next boundary experiment should generate paired Mode B groups with fixed contact/material/action family and varied boundary, then compare cross-boundary basis reconstruction and normalized response patterns.
+
+
+### Paired Boundary Mode B v1
+
+A first paired boundary-effect dataset was generated after the boundary selector smoke passed. It fixes material and action family while varying boundary condition.
+
+Config:
+
+```text
+tissue_dataset_v0/configs/sofa_njf_boundary_basis_v1.yaml
+```
+
+Output, not committed:
+
+```text
+tissue_dataset_v0/outputs/sofa_njf_boundary_basis_v1
+```
+
+Design:
+
+```text
+2 contact points x 1 material x 4 boundary conditions x 24 basis_v2-style actions
+8 groups, 192 samples
+```
+
+Validation status: NJF dataset validation passed with `192` samples and `8` groups; boundary/solver check passed with `0` errors; read smoke passed.
+
+Rank-4 cross-boundary result:
+
+```text
+effective_rank_mean=2.090
+top2_cumulative_explained_mean=0.899835
+rank4 local_group_basis_error_mean=0.047787
+same_contact_same_material_diff_boundary cross_err_mean=0.742796
+same_contact_same_material_diff_boundary projection_similarity_mean=0.427059
+same_contact_same_material_diff_boundary principal_angle_mean=49.970 deg
+boundary_pattern normalized_cross_error_mean=0.736558
+boundary_pattern normalized_projection_similarity_mean=0.427186
+```
+
+Interpretation: under fixed contact/material/action family, changing simplified fixed-node boundary conditions strongly changes the response basis. The normalized cross-boundary error remains high, so this is not just a response-scale effect. This gives initial controlled-SOFA evidence that boundary condition `B` should be represented in `J_phi(X, p, theta, B)`. The result remains a simplified boundary diagnostic, not a claim that realistic anatomical boundary effects are fully characterized.
+
 ## Current Limitations
 
 The current controlled dataset is intentionally limited:

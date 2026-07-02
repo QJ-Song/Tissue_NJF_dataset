@@ -315,7 +315,9 @@ def _build_mode_b_groups(data: dict[str, Any], geometry: GeometryConfig, *, samp
     sampling = data.get("sampling", {}) or {}
     basis = sampling.get("response_basis", {}) or {}
     contact_points_xy = _basis_contact_points_xy(basis, sampling)
-    material_configs = _basis_material_configs(data, basis, _build_material(data.get("material", data.get("material_sampler", {}))))
+    base_material = _build_material(data.get("material", data.get("material_sampler", {})))
+    material_configs = _basis_material_configs(data, basis, base_material)
+    configured_boundary_conditions = _basis_boundary_conditions(basis)
     directions = basis.get(
         "action_directions",
         [
@@ -326,46 +328,54 @@ def _build_mode_b_groups(data: dict[str, Any], geometry: GeometryConfig, *, samp
     )
     magnitudes_mm = basis.get("local_delta_magnitudes_mm", [0.1])
     group_prefix = str(basis.get("group_id_prefix", "group"))
-    single_legacy_group_id = basis.get("group_id") if len(contact_points_xy) == 1 and len(material_configs) == 1 else None
+    single_legacy_group_id = (
+        basis.get("group_id")
+        if len(contact_points_xy) == 1 and len(material_configs) == 1 and configured_boundary_conditions is None
+        else None
+    )
 
     groups: list[ModeBGroupPlan] = []
     sample_index = 0
     group_index = 1
-    for material_index, material_config in enumerate(material_configs, start=1):
+    for material_index, material_config_base in enumerate(material_configs, start=1):
         material_id = f"material_{material_index:06d}"
-        for contact_index, contact_xy in enumerate(contact_points_xy, start=1):
-            contact_point = _contact_point_from_xy(contact_xy, geometry)
-            contact_point_id = f"contact_{contact_index:06d}"
-            group_id = str(single_legacy_group_id or f"{group_prefix}_{group_index:06d}")
-            actions: list[ModeAActionPlan] = []
-            action_index = 0
-            for direction_value in directions:
-                direction = _normalize_direction(direction_value)
-                for magnitude_mm in magnitudes_mm:
-                    actions.append(
-                        ModeAActionPlan(
-                            action_id=f"{group_id}_action_{action_index + 1:06d}",
-                            direction=direction,
-                            magnitude_m=float(magnitude_mm) / 1000.0,
-                            contact_point=contact_point,
-                            sample_id=sample_start + sample_index,
+        boundary_conditions = configured_boundary_conditions or [material_config_base.boundary_condition]
+        for boundary_index, boundary_condition in enumerate(boundary_conditions, start=1):
+            boundary_id = f"boundary_{boundary_index:06d}"
+            material_config = replace(material_config_base, boundary_condition=str(boundary_condition))
+            for contact_index, contact_xy in enumerate(contact_points_xy, start=1):
+                contact_point = _contact_point_from_xy(contact_xy, geometry)
+                contact_point_id = f"contact_{contact_index:06d}"
+                group_id = str(single_legacy_group_id or f"{group_prefix}_{group_index:06d}")
+                actions: list[ModeAActionPlan] = []
+                action_index = 0
+                for direction_value in directions:
+                    direction = _normalize_direction(direction_value)
+                    for magnitude_mm in magnitudes_mm:
+                        actions.append(
+                            ModeAActionPlan(
+                                action_id=f"{group_id}_action_{action_index + 1:06d}",
+                                direction=direction,
+                                magnitude_m=float(magnitude_mm) / 1000.0,
+                                contact_point=contact_point,
+                                sample_id=sample_start + sample_index,
+                            )
                         )
+                        action_index += 1
+                        sample_index += 1
+                groups.append(
+                    ModeBGroupPlan(
+                        group_id=group_id,
+                        state_id=STATE_ID,
+                        material_id=material_id,
+                        boundary_id=boundary_id,
+                        contact_point_id=contact_point_id,
+                        contact_point=contact_point,
+                        material=material_config,
+                        actions=tuple(actions),
                     )
-                    action_index += 1
-                    sample_index += 1
-            groups.append(
-                ModeBGroupPlan(
-                    group_id=group_id,
-                    state_id=STATE_ID,
-                    material_id=material_id,
-                    boundary_id=BOUNDARY_ID,
-                    contact_point_id=contact_point_id,
-                    contact_point=contact_point,
-                    material=material_config,
-                    actions=tuple(actions),
                 )
-            )
-            group_index += 1
+                group_index += 1
     return groups
 
 
@@ -382,6 +392,15 @@ def _basis_contact_points_xy(basis: dict[str, Any], sampling: dict[str, Any]) ->
             raise ValueError(f"Expected contact point [x, y], got: {point}")
         result.append(point)
     return result
+
+
+def _basis_boundary_conditions(basis: dict[str, Any]) -> list[str] | None:
+    if "boundary_conditions" not in basis:
+        return None
+    values = basis["boundary_conditions"]
+    if not isinstance(values, (list, tuple)) or not values:
+        raise ValueError("response_basis.boundary_conditions must be a non-empty list")
+    return [str(value) for value in values]
 
 
 def _basis_material_configs(data: dict[str, Any], basis: dict[str, Any], base_material: MaterialConfig) -> list[MaterialConfig]:

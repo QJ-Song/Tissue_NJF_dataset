@@ -108,7 +108,14 @@ def check_sample(sample_dir: Path, *, fixed_displacement_tol_mm: float, allow_mi
     if max_fixed_disp_mm > fixed_displacement_tol_mm:
         issues.append(error(sample_id, f"Max fixed-node displacement {max_fixed_disp_mm:.6f} mm exceeds {fixed_displacement_tol_mm:.6f} mm."))
 
-    allowed_boundary_types = {"fixed_bottom", "official_liver_volume_fixed_indices_surface_unmapped"}
+    allowed_boundary_types = {
+        "bottom_fixed",
+        "back_fixed",
+        "bottom_and_back_fixed",
+        "small_bottom_patch_fixed",
+        "fixed_bottom",
+        "official_liver_volume_fixed_indices_surface_unmapped",
+    }
     if boundary_type not in allowed_boundary_types:
         issues.append(error(sample_id, f"boundary.boundary_type must be one of {sorted(allowed_boundary_types)}, got {boundary_type}."))
     for key in ("fixed_node_count", "free_node_count", "total_node_count", "boundary_box"):

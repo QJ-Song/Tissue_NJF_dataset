@@ -54,8 +54,9 @@ def main() -> int:
     shared_basis = compute_shared_basis_diagnostic(groups, pairwise=pairwise, rank=args.rank)
     metadata_summary = summarize_pairwise_by_metadata(groups, pairwise)
     material_scale = analyze_material_scale_pattern(groups, rank=args.rank)
+    boundary_pattern = analyze_boundary_pattern(groups, rank=args.rank)
     per_group_rows = [group.per_group_row() for group in groups]
-    summary = build_summary(groups, pairwise, metadata_summary, material_scale, shared_basis, rank=args.rank)
+    summary = build_summary(groups, pairwise, metadata_summary, material_scale, boundary_pattern, shared_basis, rank=args.rank)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "per_group_metrics.csv", per_group_rows)
@@ -66,6 +67,7 @@ def main() -> int:
     write_matrix_csv(output_dir / "cross_reconstruction_error.csv", pairwise["cross_reconstruction_error"], groups)
     write_csv(output_dir / "metadata_grouped_summary.csv", metadata_summary)
     write_csv(output_dir / "material_scale_pattern.csv", material_scale)
+    write_csv(output_dir / "boundary_pattern.csv", boundary_pattern)
     write_json(output_dir / "summary.json", summary)
     (output_dir / "decision_summary.md").write_text(build_decision_report(summary), encoding="utf-8")
 
@@ -259,10 +261,11 @@ def compute_pairwise(groups: list[GroupBasis], *, rank: int) -> dict[str, np.nda
 
 def summarize_pairwise_by_metadata(groups: list[GroupBasis], pairwise: dict[str, np.ndarray]) -> list[dict[str, Any]]:
     buckets: dict[str, list[tuple[int, int]]] = {
-        "same_contact_diff_material": [],
-        "same_material_diff_contact": [],
-        "diff_contact_diff_material": [],
-        "same_contact_same_material": [],
+        "same_contact_same_material_same_boundary": [],
+        "same_contact_same_material_diff_boundary": [],
+        "same_contact_same_boundary_diff_material": [],
+        "same_material_same_boundary_diff_contact": [],
+        "diff_contact_diff_material_or_boundary": [],
     }
     for i, source in enumerate(groups):
         for j, target in enumerate(groups):
@@ -270,14 +273,17 @@ def summarize_pairwise_by_metadata(groups: list[GroupBasis], pairwise: dict[str,
                 continue
             same_contact = source.contact_point_id == target.contact_point_id
             same_material = source.material_id == target.material_id
-            if same_contact and same_material:
-                key = "same_contact_same_material"
-            elif same_contact and not same_material:
-                key = "same_contact_diff_material"
-            elif same_material and not same_contact:
-                key = "same_material_diff_contact"
+            same_boundary = source.boundary_id == target.boundary_id
+            if same_contact and same_material and same_boundary:
+                key = "same_contact_same_material_same_boundary"
+            elif same_contact and same_material and not same_boundary:
+                key = "same_contact_same_material_diff_boundary"
+            elif same_contact and same_boundary and not same_material:
+                key = "same_contact_same_boundary_diff_material"
+            elif same_material and same_boundary and not same_contact:
+                key = "same_material_same_boundary_diff_contact"
             else:
-                key = "diff_contact_diff_material"
+                key = "diff_contact_diff_material_or_boundary"
             buckets[key].append((i, j))
 
     rows: list[dict[str, Any]] = []
@@ -312,6 +318,65 @@ def pairwise_stats_row(label: str, pairs: list[tuple[int, int]], pairwise: dict[
         "cross_reconstruction_error_mean": float(cross.mean()),
         "cross_reconstruction_error_std": float(cross.std()),
     }
+
+
+def analyze_boundary_pattern(groups: list[GroupBasis], *, rank: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    keys = sorted({(group.contact_point_id, group.material_id) for group in groups})
+    for contact_id, material_id in keys:
+        matched = [group for group in groups if group.contact_point_id == contact_id and group.material_id == material_id]
+        for index, source in enumerate(matched):
+            for target in matched[index + 1 :]:
+                if source.boundary_id == target.boundary_id:
+                    continue
+                r = max(1, min(rank, source.basis.shape[0], target.basis.shape[0]))
+                raw_source_target = reconstruction_error(target.centered, source.basis[:r])
+                raw_target_source = reconstruction_error(source.centered, target.basis[:r])
+                source_norm = normalize_rows(source.matrix)
+                target_norm = normalize_rows(target.matrix)
+                source_norm_centered = source_norm - source_norm.mean(axis=0, keepdims=True)
+                target_norm_centered = target_norm - target_norm.mean(axis=0, keepdims=True)
+                norm_source_target = reconstruction_error(target_norm_centered, source.normalized_basis[:r])
+                norm_target_source = reconstruction_error(source_norm_centered, target.normalized_basis[:r])
+                sv = np.linalg.svd(source.normalized_basis[:r] @ target.normalized_basis[:r].T, compute_uv=False)
+                sv = np.clip(sv, 0.0, 1.0)
+                rows.append(
+                    {
+                        "contact_point_id": contact_id,
+                        "material_id": material_id,
+                        "source_group_id": source.group_id,
+                        "target_group_id": target.group_id,
+                        "source_boundary_id": source.boundary_id,
+                        "target_boundary_id": target.boundary_id,
+                        "source_boundary_type": boundary_type_from_metadata(source),
+                        "target_boundary_type": boundary_type_from_metadata(target),
+                        "source_fixed_node_count": fixed_node_count_from_metadata(source),
+                        "target_fixed_node_count": fixed_node_count_from_metadata(target),
+                        "response_norm_ratio_source_over_target": source.response_norm_mean / max(target.response_norm_mean, 1e-12),
+                        "raw_cross_reconstruction_error_mean": float((raw_source_target + raw_target_source) / 2.0),
+                        "normalized_cross_reconstruction_error_mean": float((norm_source_target + norm_target_source) / 2.0),
+                        "normalized_projection_similarity": float(np.sum(sv**2) / r),
+                        "interpretation": interpret_boundary_pattern(
+                            float((norm_source_target + norm_target_source) / 2.0),
+                            float(np.sum(sv**2) / r),
+                        ),
+                    }
+                )
+    return rows
+
+
+def boundary_type_from_metadata(group: GroupBasis) -> str:
+    boundary = group.metadata.get("boundary", {})
+    if isinstance(boundary, dict):
+        return str(boundary.get("boundary_type", group.boundary_id))
+    return group.boundary_id
+
+
+def fixed_node_count_from_metadata(group: GroupBasis) -> int | None:
+    boundary = group.metadata.get("boundary", {})
+    if isinstance(boundary, dict) and boundary.get("fixed_node_count") is not None:
+        return int(boundary["fixed_node_count"])
+    return None
 
 
 def analyze_material_scale_pattern(groups: list[GroupBasis], *, rank: int) -> list[dict[str, Any]]:
@@ -451,13 +516,16 @@ def basis_from_rows(rows: np.ndarray, rank: int) -> np.ndarray:
 def metadata_relation(source: GroupBasis, target: GroupBasis) -> str:
     same_contact = source.contact_point_id == target.contact_point_id
     same_material = source.material_id == target.material_id
+    same_boundary = source.boundary_id == target.boundary_id
+    if same_contact and same_material and same_boundary:
+        return "same_contact_same_material_same_boundary"
     if same_contact and same_material:
-        return "same_contact_same_material"
-    if same_contact:
-        return "same_contact_diff_material"
-    if same_material:
-        return "same_material_diff_contact"
-    return "diff_contact_diff_material"
+        return "same_contact_same_material_diff_boundary"
+    if same_contact and same_boundary:
+        return "same_contact_same_boundary_diff_material"
+    if same_material and same_boundary:
+        return "same_material_same_boundary_diff_contact"
+    return "diff_contact_diff_material_or_boundary"
 
 
 def stat_summary_from_rows(rows: list[dict[str, Any]], key: str) -> dict[str, float]:
@@ -469,6 +537,7 @@ def build_summary(
     pairwise: dict[str, np.ndarray],
     metadata_summary: list[dict[str, Any]],
     material_scale: list[dict[str, Any]],
+    boundary_pattern: list[dict[str, Any]],
     shared_basis: dict[str, Any],
     *,
     rank: int,
@@ -487,6 +556,7 @@ def build_summary(
         "group_ids": [group.group_id for group in groups],
         "contact_point_ids": sorted({group.contact_point_id for group in groups}),
         "material_ids": sorted({group.material_id for group in groups}),
+        "boundary_ids": sorted({group.boundary_id for group in groups}),
         "per_group_effective_rank": {group.group_id: group.effective_rank for group in groups},
         "per_group_top2_cumulative_explained": {group.group_id: group.top_cumulative(1) for group in groups},
         "per_group_leave_one_out_error_mean": {group.group_id: group.leave_one_out_mean for group in groups},
@@ -505,10 +575,12 @@ def build_summary(
         "per_group_rows": group_rows,
         "metadata_grouped_summary": metadata_summary,
         "material_scale_pattern": material_scale,
+        "boundary_pattern": boundary_pattern,
         "questions": {
             "local_response_basis_low_dimensional": local_basis_decision(top2, effective),
             "basis_shared_across_contact_or_material": cross_group_decision(metadata_summary),
             "material_scale_or_pattern": material_decision(material_scale),
+            "boundary_scale_or_pattern": boundary_decision(boundary_pattern),
             "shared_basis_generalization": shared_basis_decision(shared_basis),
         },
         "shared_basis_diagnostic": shared_basis,
@@ -715,6 +787,16 @@ def shared_basis_decision(shared_basis: dict[str, Any]) -> str:
     return "condition_specific; held-out shared basis is much worse than group-local expression"
 
 
+def boundary_decision(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "not_answered; no matched contact/material with different boundary"
+    normalized_errors = np.asarray([float(row["normalized_cross_reconstruction_error_mean"]) for row in rows], dtype=np.float64)
+    normalized_projection = np.asarray([float(row["normalized_projection_similarity"]) for row in rows], dtype=np.float64)
+    if float(normalized_errors.mean()) < 0.1 and float(normalized_projection.mean()) > 0.9:
+        return "mostly_scale_change_under_current_data"
+    return "pattern_or_basis_changes_present; condition NJF on boundary"
+
+
 def material_decision(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "not_answered; no matched contact with different material"
@@ -726,6 +808,16 @@ def material_decision(rows: list[dict[str, Any]]) -> str:
 
 
 def interpret_material_pattern(normalized_error: float, normalized_projection: float) -> str:
+    if normalized_error < 0.1 and normalized_projection > 0.9:
+        return "scale_only_like"
+    if normalized_error < 0.25 and normalized_projection > 0.75:
+        return "mostly_scale_with_some_pattern_change"
+    return "pattern_changes"
+
+
+
+
+def interpret_boundary_pattern(normalized_error: float, normalized_projection: float) -> str:
     if normalized_error < 0.1 and normalized_projection > 0.9:
         return "scale_only_like"
     if normalized_error < 0.25 and normalized_projection > 0.75:
