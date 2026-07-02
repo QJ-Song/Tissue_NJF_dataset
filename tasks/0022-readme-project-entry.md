@@ -24,10 +24,14 @@ The README now:
 - keeps Isaac Sim setup as a secondary section pointing to docs/ISAAC_SIM_SETUP.md.
 ```
 
+## Verification
+
+```text
+README was reviewed from a fresh-reader perspective.
+The update was committed and pushed to origin/main as commit 86b6630.
+No simulation, NJF training, or real-experiment planning was added.
+```
+
 ## Status
 
-This is a project management / documentation cleanup task. It does not add new simulation, NJF training, or real-experiment planning.
-
-## Next Step
-
-Review the README from a fresh-reader perspective. If acceptable, commit and push this documentation update.
+Completed.
